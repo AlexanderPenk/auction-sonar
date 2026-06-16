@@ -82,22 +82,26 @@ _SEARCH_FIELDS = [
 ]
 
 
-def build_search_url(cod_provincia: str, *, estado: str = "", tipo: str = "") -> str:
-    """Erweiterte Portal-Suche, gefiltert auf eine Provinz (INE-Code).
-    Optional Status (z. B. "EJ" = offen) und Bien-Typ. Liefert Trefferseite 1."""
-    import urllib.parse as _url
+def search_param_pairs(cod_provincia: str, *, estado: str = "", tipo: str = "") -> list[tuple[str, str]]:
+    """Die campo[]/dato[]-Paare der erweiterten Suche — als GET-Query ODER POST-Body nutzbar."""
     subst = {2: estado, 3: tipo, 8: cod_provincia}
     pairs: list[tuple[str, str]] = []
     for i, (campo, fixed) in enumerate(_SEARCH_FIELDS):
         if campo is not None:
             pairs.append((f"campo[{i}]", campo))
         pairs.append((f"dato[{i}]", subst.get(i, fixed) or ""))
-    # Datumsfelder als Array (leer = keine Einschränkung)
     for i, campo in ((16, "SUBASTA.FECHA_FIN_YMD"), (17, "SUBASTA.FECHA_INICIO_YMD")):
         pairs.append((f"campo[{i}]", campo))
         pairs.append((f"dato[{i}][0]", ""))
         pairs.append((f"dato[{i}][1]", ""))
-    return f"{config.PORTAL_SEARCH}?{_url.urlencode(pairs)}"
+    return pairs
+
+
+def build_search_url(cod_provincia: str, *, estado: str = "", tipo: str = "") -> str:
+    """Erweiterte Portal-Suche, gefiltert auf eine Provinz (INE-Code).
+    Optional Status (z. B. "EJ" = offen) und Bien-Typ. Liefert Trefferseite 1."""
+    import urllib.parse as _url
+    return f"{config.PORTAL_SEARCH}?{_url.urlencode(search_param_pairs(cod_provincia, estado=estado, tipo=tipo))}"
 
 
 def harvest_pairs(soup: BeautifulSoup, scope_selector: str | None = None) -> dict[str, str]:
