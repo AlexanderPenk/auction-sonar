@@ -281,6 +281,26 @@ def api_debug(_: None = Depends(auth)) -> dict:
                 out["justice_doc_probe"] = {"url": url, "error": str(e)}
         else:
             out["justice_doc_probe"] = "keine Sektion-IV-Items gefunden"
+
+        # KRITISCH: ist die Portal-Detailseite vom Server aus erreichbar?
+        probe = out.get("justice_doc_probe")
+        sub_id = probe.get("sub_id_in_doc") if isinstance(probe, dict) else None
+        if sub_id:
+            try:
+                from portal import Portal
+                sub = Portal().get_subasta(sub_id)
+                biens = [b for l in sub.lotes for b in l.bienes]
+                out["portal_detail"] = {
+                    "ok": True, "sub_id": sub_id,
+                    "tipo_subasta": getattr(sub, "tipo_subasta", None),
+                    "n_bienes": len(biens),
+                    "first_bien": ({"municipio": biens[0].municipio,
+                                    "provincia": biens[0].provincia,
+                                    "ref_catastral": biens[0].referencia_catastral}
+                                   if biens else None),
+                }
+            except Exception as e:  # noqa: BLE001
+                out["portal_detail"] = {"ok": False, "sub_id": sub_id, "error": str(e)[:300]}
     except Exception as e:  # noqa: BLE001
         out["fatal"] = str(e)
     return out
