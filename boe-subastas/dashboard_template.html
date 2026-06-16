@@ -380,14 +380,29 @@ body.scope .search,body.insights .search{visibility:hidden}
           <h3>Auction type</h3>
           <div class="ins-items">
             <div class="ins-card"><div class="term">Judicial <span class="es">Subasta judicial</span></div>
-              <p>Ordered by a court to enforce a debt — most often a mortgage foreclosure. The court (juzgado) runs it through the BOE portal.</p>
+              <p>Ordered by a court to enforce a debt — most often a mortgage foreclosure. The court (juzgado) runs it through the BOE portal. Auction IDs start with <b>SUB-JA</b> (forced, "en vía de apremio") or <b>SUB-JV</b> (voluntary).</p>
               <span class="tag note">Court-run</span></div>
             <div class="ins-card"><div class="term">Notarial <span class="es">Subasta notarial</span></div>
               <p>Conducted by a notary, typically for out-of-court mortgage enforcement or certain voluntary and inheritance sales.</p>
               <span class="tag note">Notary-run</span></div>
             <div class="ins-card"><div class="term">Administrative <span class="es">Subasta administrativa</span></div>
-              <p>Run by a public body — usually the tax agency (AEAT) or Social Security — to collect public debts.</p>
+              <p>Run by a public body — usually the tax agency (AEAT) or Social Security — to collect public debts. Auction IDs start with <b>SUB-AT</b>.</p>
               <span class="tag note">Agency-run</span></div>
+          </div>
+        </div>
+
+        <div class="ins-group">
+          <h3>Reading BOE data</h3>
+          <div class="ins-items">
+            <div class="ins-card"><div class="term">Auction ID <span class="es">SUB-XX-YYYY-NNN</span></div>
+              <p>The key that links a BOE notice to the auction portal. The two letters tell you the type: <b>JA</b> = judicial forced sale, <b>JV</b> = judicial voluntary, <b>AT</b> = tax-agency (administrative). Example: SUB-JA-2026-241891.</p></div>
+            <div class="ins-card"><div class="term">Forced vs. voluntary <span class="es">vía de apremio / voluntaria</span></div>
+              <p>"En vía de apremio" is a forced sale to settle a debt — the owner is being executed against, so occupancy and eviction risk matter more. "Voluntaria" is a court-supervised sale the owner asked for; usually cleaner.</p>
+              <span class="tag warn">Apremio = higher risk</span></div>
+            <div class="ins-card"><div class="term">Where it's published <span class="es">Sección IV / V-B</span></div>
+              <p>Judicial auctions appear in the BOE under Section IV (Administración de Justicia); tax-agency auctions under Section V-B (Otros anuncios oficiales). The crawler reads both.</p></div>
+            <div class="ins-card"><div class="term">Auction ≠ tender <span class="es">subasta ≠ licitación</span></div>
+              <p>A "licitación" is a public procurement tender (awarding contracts), <i>not</i> a property auction. The BOE mixes both in its announcements; Auction Sonar keeps only true "subasta" notices and filters tenders out.</p></div>
           </div>
         </div>
 
