@@ -48,8 +48,10 @@ def _in_focus(sub) -> bool:
         if not any(f.upper() in t for f in config.FOCUS_TIPOS):
             return False
     if config.FOCUS_PROVINCIAS:
-        provs = {(b.provincia or "") for l in sub.lotes for b in l.bienes}
-        if not (provs & set(config.FOCUS_PROVINCIAS)):
+        provs = [(b.provincia or "") for l in sub.lotes for b in l.bienes]
+        # Teilstring-Match: das Portal schreibt z. B. "Alicante/Alacant",
+        # "Valencia/València" — ein exakter Vergleich würde diese verfehlen.
+        if not any(f.lower() in p.lower() for p in provs for f in config.FOCUS_PROVINCIAS):
             return False
     if config.FOCUS_SUBTIPOS:
         subs = [(b.subtipo or "") for l in sub.lotes for b in l.bienes]

@@ -40,12 +40,12 @@ PORTAL_DOC = PORTAL_BASE + "/verDocumento.php"                  # ?idSub=...&doc
 
 # ── Subasta-Filter für die API-Discovery ─────────────────────────────────────
 # Anuncios, deren Titel eines dieser Wörter enthält, gelten als Versteigerung.
-# Nur "subasta": echte Versteigerungs-Anuncios heißen "Anuncio de subasta
-# judicial/administrativa/notarial". Frühere Begriffe wie "ejecuci" fingen
-# fälschlich Ausschreibungen ("ejecución de obras/contratos") mit ein.
+# (Nur relevant, wenn KEINE Sektionscodes gesetzt sind — siehe unten.)
 SUBASTA_KEYWORDS = ("subasta",)  # bewusst lowercase-Match
-# Optional auf bestimmte Sektionscodes einschränken (Sección V = Anuncios).
-SUBASTA_SECTION_CODES: tuple[str, ...] = ()  # leer = nicht filtern
+# Versteigerungs-Anuncios stehen in Sektion IV (gerichtlich) und V-B (behördlich, AEAT).
+# Ihr Index-Titel ist nur der Gerichtsort (z. B. "ALCOY"), nicht "subasta" — daher
+# filtern wir nach Sektion und erkennen die echte Versteigerung an der SUB-ID im Dokument.
+SUBASTA_SECTION_CODES: tuple[str, ...] = ("4", "5B")
 
 # Regex, um die SUB-Kennung aus Anuncio-Text/Titel zu ziehen.
 # Achtung: behördliche Kennungen enthalten Buchstaben (z. B. SUB-AT-2025-24R3586002036),

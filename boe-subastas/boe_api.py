@@ -80,8 +80,11 @@ class BoeApi:
             return None
 
     def _is_subasta(self, item: dict, section_code: str | None) -> bool:
-        if config.SUBASTA_SECTION_CODES and section_code not in config.SUBASTA_SECTION_CODES:
-            return False
+        # In den Auktions-Sektionen (IV gerichtlich, V-B behördlich) gilt jeder
+        # Eintrag zunächst als Kandidat; ob es wirklich eine Versteigerung ist,
+        # entscheidet die SUB-ID, die in discover aus dem Dokument gezogen wird.
+        if config.SUBASTA_SECTION_CODES:
+            return section_code in config.SUBASTA_SECTION_CODES
         title = (item.get("titulo") or "").lower()
         return any(kw in title for kw in config.SUBASTA_KEYWORDS)
 
