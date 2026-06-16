@@ -225,52 +225,62 @@ def api_crawl(_: None = Depends(auth)) -> JSONResponse:
 
 @app.get("/api/debug")
 def api_debug(_: None = Depends(auth)) -> dict:
-    """Einmal-Probe: Discovery → SUB-ID-Ableitung → Portal-Detailseite.
-    Gibt im Klartext zurück, wo die Kette (ein)bricht."""
+    """Tiefen-Probe des jüngsten Sumarios: Sektionen, wie Justiz-Einträge betitelt
+    sind, und ob sich aus einem Justiz-Dokument eine SUB-ID ziehen lässt."""
     import datetime as _dt
     out: dict = {}
     try:
-        from boe_api import BoeApi
+        import boe_api
+        from boe_api import BoeApi, _abs
         api = BoeApi()
-        recs: list = []
         day = None
-        for back in range(0, 12):       # jüngsten Werktag mit Treffern suchen
+        sumario = None
+        for back in range(0, 12):
             d = _dt.date.today() - _dt.timedelta(days=back)
-            r = api.find_subastas(d)
-            if r:
-                recs, day = r, d
+            s = api.fetch_sumario(d)
+            if s:
+                day, sumario = d, s
                 break
-        out["discovery"] = {
-            "day": day.isoformat() if day else None,
-            "n_records": len(recs),
-            "n_subid_from_title": sum(1 for r in recs if r.get("sub_id")),
-            "samples": [{"titulo": (r.get("titulo") or "")[:90],
-                         "url_xml": r.get("url_xml"),
-                         "sub_id": r.get("sub_id")} for r in recs[:3]],
-        }
-        target = next((r for r in recs if not r.get("sub_id") and r.get("url_xml")), None)
-        if target:
+        out["day"] = day.isoformat() if day else None
+        if not sumario:
+            out["note"] = "kein Sumario gefunden"
+            return out
+        data = sumario.get("data", sumario)
+        diarios = boe_api._aslist(boe_api._dig(data, "sumario", "diario"))
+        sections, subasta_samples, justice_samples = [], [], []
+        first_justice = None
+        for diario in diarios:
+            for seccion in boe_api._aslist(diario.get("seccion")):
+                code = str(seccion.get("codigo")) if isinstance(seccion, dict) else None
+                items = list(boe_api._iter_items(seccion))
+                n_sub = sum(1 for it in items if "subasta" in (it.get("titulo") or "").lower())
+                sections.append({"codigo": code, "n_items": len(items), "n_subasta_title": n_sub})
+                for it in items:
+                    t = it.get("titulo") or ""
+                    if "subasta" in t.lower() and len(subasta_samples) < 6:
+                        subasta_samples.append({"codigo": code, "titulo": t[:85]})
+                    if code and code.startswith("4"):
+                        if len(justice_samples) < 6:
+                            justice_samples.append(t[:85])
+                        if first_justice is None and it.get("url_xml"):
+                            first_justice = it
+        out["sections"] = sections
+        out["subasta_title_samples"] = subasta_samples
+        out["justice_section_samples"] = justice_samples
+        if first_justice:
+            url = _abs(first_justice.get("url_xml"))
             try:
-                out["subid_fallback"] = {"url_xml": target["url_xml"],
-                                         "derived_sub_id": api.sub_id_from_anuncio_xml(target["url_xml"])}
+                txt = api.fetcher.get_text(url)
+                m = boe_api._SUB_RE.search(txt)
+                out["justice_doc_probe"] = {
+                    "titulo": (first_justice.get("titulo") or "")[:85],
+                    "sub_id_in_doc": m.group(0) if m else None,
+                    "has_subasta_word": "subasta" in txt.lower(),
+                }
             except Exception as e:  # noqa: BLE001
-                out["subid_fallback"] = {"url_xml": target["url_xml"], "error": str(e)}
-        sub_id = next((r["sub_id"] for r in recs if r.get("sub_id")), None) \
-            or out.get("subid_fallback", {}).get("derived_sub_id")
-        out["sample_sub_id"] = sub_id
-        if sub_id:
-            try:
-                from portal import Portal
-                sub = Portal().get_subasta(sub_id)
-                biens = [b for l in sub.lotes for b in l.bienes]
-                out["portal"] = {"ok": True, "sub_id": sub_id,
-                                 "n_lotes": len(sub.lotes), "n_bienes": len(biens),
-                                 "first_bien": ({"municipio": biens[0].municipio,
-                                                 "provincia": biens[0].provincia,
-                                                 "ref_catastral": biens[0].referencia_catastral}
-                                                if biens else None)}
-            except Exception as e:  # noqa: BLE001
-                out["portal"] = {"ok": False, "sub_id": sub_id, "error": str(e)}
+                out["justice_doc_probe"] = {"url": url, "error": str(e)}
+        else:
+            out["justice_doc_probe"] = "keine Sektion-IV-Items gefunden"
     except Exception as e:  # noqa: BLE001
         out["fatal"] = str(e)
     return out
