@@ -302,27 +302,39 @@ def api_debug(_: None = Depends(auth)) -> dict:
             except Exception as e:  # noqa: BLE001
                 out["portal_detail"] = {"ok": False, "sub_id": sub_id, "error": str(e)[:300]}
 
-        # NEU: provinz-gezielte Portal-Suche testen (kalibriert estado).
+        # NEU: provinz-gezielte Portal-Suche testen — mehrere URL-Varianten,
+        # um die zu finden, die wirklich eine Trefferliste liefert.
         try:
             import config as _cfg
+            import re as _re
             from portal import build_search_url
             _cfg.reload_scope()
-            test_prov = (list(_cfg.FOCUS_PROVINCIAS) or ["Madrid"])[0]
-            code = _cfg.province_code(test_prov)
-            probe = {"province": test_prov, "cod_provincia": code}
-            if code:
-                for estado in (_cfg.PORTAL_SEARCH_ESTADO, "", "EJ"):
-                    try:
-                        url = build_search_url(code, estado=estado)
-                        ids = api.fetcher.get_text(url)
-                        import re as _re
-                        found = list(dict.fromkeys(
-                            _re.findall(r"idSub=(SUB-[A-Z0-9-]+)", ids)))
-                        probe[f"estado='{estado}'"] = {"n_found": len(found),
-                                                       "sample": found[:3]}
-                    except Exception as e:  # noqa: BLE001
-                        probe[f"estado='{estado}'"] = {"error": str(e)[:200]}
-            out["province_search_probe"] = probe
+
+            def _probe(u: str) -> dict:
+                try:
+                    html = api.fetcher.get_text(u)
+                    ids = list(dict.fromkeys(_re.findall(r"idSub=(SUB-[A-Z0-9-]+)", html)))
+                    low = html.lower()
+                    mt = _re.search(r"<title>(.*?)</title>", html, _re.S | _re.I)
+                    return {"len": len(html), "idSub": len(ids), "sample": ids[:3],
+                            "title": (mt.group(1).strip()[:70] if mt else None),
+                            "detalle": low.count("detallesubasta"),
+                            "no_results": any(s in low for s in
+                                ("no hay subastas", "no se han encontrado", "sin resultados")),
+                            "has_paginacion": "paginacion" in low or "siguiente" in low}
+                except Exception as e:  # noqa: BLE001
+                    return {"error": str(e)[:200]}
+
+            code = "28"  # Madrid als Test (viele offene Subastas erwartet)
+            base = build_search_url(code, estado="EJ")
+            out["province_search_probe"] = {
+                "cod_provincia": code,
+                "A_current": _probe(base),
+                "B_buscar_mas": _probe(base + "&accion=Buscar_Mas_Resultados"),
+                "C_buscar": _probe(base + "&accion=Buscar"),
+                "D_minimal": _probe(_cfg.PORTAL_SEARCH +
+                    "?campo%5B8%5D=BIEN.COD_PROVINCIA&dato%5B8%5D=28&accion=Buscar_Mas_Resultados"),
+            }
         except Exception as e:  # noqa: BLE001
             out["province_search_probe"] = {"error": str(e)[:200]}
     except Exception as e:  # noqa: BLE001
