@@ -221,3 +221,56 @@ def api_crawl(_: None = Depends(auth)) -> JSONResponse:
     started = _start_crawl_thread()
     code = 202 if started else 409
     return JSONResponse({"started": started}, status_code=code)
+
+
+@app.get("/api/debug")
+def api_debug(_: None = Depends(auth)) -> dict:
+    """Einmal-Probe: Discovery → SUB-ID-Ableitung → Portal-Detailseite.
+    Gibt im Klartext zurück, wo die Kette (ein)bricht."""
+    import datetime as _dt
+    out: dict = {}
+    try:
+        from boe_api import BoeApi
+        api = BoeApi()
+        recs: list = []
+        day = None
+        for back in range(0, 12):       # jüngsten Werktag mit Treffern suchen
+            d = _dt.date.today() - _dt.timedelta(days=back)
+            r = api.find_subastas(d)
+            if r:
+                recs, day = r, d
+                break
+        out["discovery"] = {
+            "day": day.isoformat() if day else None,
+            "n_records": len(recs),
+            "n_subid_from_title": sum(1 for r in recs if r.get("sub_id")),
+            "samples": [{"titulo": (r.get("titulo") or "")[:90],
+                         "url_xml": r.get("url_xml"),
+                         "sub_id": r.get("sub_id")} for r in recs[:3]],
+        }
+        target = next((r for r in recs if not r.get("sub_id") and r.get("url_xml")), None)
+        if target:
+            try:
+                out["subid_fallback"] = {"url_xml": target["url_xml"],
+                                         "derived_sub_id": api.sub_id_from_anuncio_xml(target["url_xml"])}
+            except Exception as e:  # noqa: BLE001
+                out["subid_fallback"] = {"url_xml": target["url_xml"], "error": str(e)}
+        sub_id = next((r["sub_id"] for r in recs if r.get("sub_id")), None) \
+            or out.get("subid_fallback", {}).get("derived_sub_id")
+        out["sample_sub_id"] = sub_id
+        if sub_id:
+            try:
+                from portal import Portal
+                sub = Portal().get_subasta(sub_id)
+                biens = [b for l in sub.lotes for b in l.bienes]
+                out["portal"] = {"ok": True, "sub_id": sub_id,
+                                 "n_lotes": len(sub.lotes), "n_bienes": len(biens),
+                                 "first_bien": ({"municipio": biens[0].municipio,
+                                                 "provincia": biens[0].provincia,
+                                                 "ref_catastral": biens[0].referencia_catastral}
+                                                if biens else None)}
+            except Exception as e:  # noqa: BLE001
+                out["portal"] = {"ok": False, "sub_id": sub_id, "error": str(e)}
+    except Exception as e:  # noqa: BLE001
+        out["fatal"] = str(e)
+    return out

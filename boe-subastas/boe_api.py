@@ -21,6 +21,15 @@ from fetcher import Fetcher
 
 log = logging.getLogger("boe_api")
 _SUB_RE = re.compile(config.SUB_ID_PATTERN)
+_SITE = "https://www.boe.es"   # für die Vervollständigung relativer Dokument-URLs
+
+
+def _abs(url: Any) -> Any:
+    """Macht eine BOE-Dokument-URL absolut. Die API liefert sie oft verkürzt
+    (z. B. '/diario_boe/xml.php?id=…') — ohne Host lässt sie sich nicht abrufen."""
+    if isinstance(url, str) and url.startswith("/"):
+        return _SITE + url
+    return url
 
 
 def _aslist(value: Any) -> list:
@@ -95,9 +104,9 @@ class BoeApi:
                         "boe_anuncio_id": item.get("identificador"),
                         "titulo": title,
                         "seccion": code,
-                        "url_pdf": _pdf_url(item),
-                        "url_xml": item.get("url_xml"),
-                        "url_html": item.get("url_html"),
+                        "url_pdf": _abs(_pdf_url(item)),
+                        "url_xml": _abs(item.get("url_xml")),
+                        "url_html": _abs(item.get("url_html")),
                         "sub_id": m.group(0) if m else None,
                         "fecha": day.isoformat(),
                     })
