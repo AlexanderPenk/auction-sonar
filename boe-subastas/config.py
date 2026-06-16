@@ -40,12 +40,17 @@ PORTAL_DOC = PORTAL_BASE + "/verDocumento.php"                  # ?idSub=...&doc
 
 # ── Subasta-Filter für die API-Discovery ─────────────────────────────────────
 # Anuncios, deren Titel eines dieser Wörter enthält, gelten als Versteigerung.
-SUBASTA_KEYWORDS = ("subasta", "edicto", "ejecuci")  # bewusst lowercase-Match
+# Nur "subasta": echte Versteigerungs-Anuncios heißen "Anuncio de subasta
+# judicial/administrativa/notarial". Frühere Begriffe wie "ejecuci" fingen
+# fälschlich Ausschreibungen ("ejecución de obras/contratos") mit ein.
+SUBASTA_KEYWORDS = ("subasta",)  # bewusst lowercase-Match
 # Optional auf bestimmte Sektionscodes einschränken (Sección V = Anuncios).
 SUBASTA_SECTION_CODES: tuple[str, ...] = ()  # leer = nicht filtern
 
 # Regex, um die SUB-Kennung aus Anuncio-Text/Titel zu ziehen.
-SUB_ID_PATTERN = r"SUB-[A-Z]{1,3}-\d{4}-\d+"
+# Achtung: behördliche Kennungen enthalten Buchstaben (z. B. SUB-AT-2025-24R3586002036),
+# daher Buchstaben+Ziffern im letzten Block, nicht nur \d.
+SUB_ID_PATTERN = r"SUB-[A-Z]{1,3}-\d{4}-[A-Z0-9]+"
 
 # ── Scope: nur bestimmte Provinzen/Typen verarbeiten ─────────────────────────
 # Leer = alles. Schreibweise wie im Portal (mit Akzenten), z. B. "Málaga".
