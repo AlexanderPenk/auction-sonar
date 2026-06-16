@@ -302,52 +302,37 @@ def api_debug(_: None = Depends(auth)) -> dict:
             except Exception as e:  # noqa: BLE001
                 out["portal_detail"] = {"ok": False, "sub_id": sub_id, "error": str(e)[:300]}
 
-        # NEU: Suche per POST + Session testen (so schickt ein Browser sie ab).
+        # Struktur der Justiz-Sektion (4) untersuchen: liefert das Sumario die
+        # Provinz/den Ort schon mit? Dann können wir gratis vorfiltern.
         try:
-            import config as _cfg
-            import re as _re
-            import requests as _rq
-            from portal import build_search_url, search_param_pairs
-            _cfg.reload_scope()
-            code = "28"  # Madrid
-            ua = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/124 Safari/537.36")
-
-            def _info(html: str) -> dict:
-                ids = list(dict.fromkeys(_re.findall(r"idSub=(SUB-[A-Z0-9-]+)", html)))
-                low = html.lower()
-                mt = _re.search(r"<title>(.*?)</title>", html, _re.S | _re.I)
-                return {"len": len(html), "idSub": len(ids), "sample": ids[:3],
-                        "title": (mt.group(1).strip()[:60] if mt else None),
-                        "detalle": low.count("detallesubasta")}
-
-            probe: dict = {"cod_provincia": code}
-            s = _rq.Session()
-            s.headers.update({"User-Agent": ua})
-            try:                       # Session etablieren
-                s.get(_cfg.PORTAL_BASE + "/subastas_ava.php", timeout=20)
-            except Exception as e:  # noqa: BLE001
-                probe["warmup"] = f"warn: {e}"[:120]
-            pairs = search_param_pairs(code, estado="EJ")
-            try:                       # E) POST mit accion + Session
-                r = s.post(_cfg.PORTAL_SEARCH,
-                           data=pairs + [("accion", "Buscar_Mas_Resultados")], timeout=30)
-                probe["E_post_session"] = _info(r.text)
-            except Exception as e:  # noqa: BLE001
-                probe["E_post_session"] = {"error": str(e)[:200]}
-            try:                       # F) GET mit Session (nach warmup)
-                r = s.get(build_search_url(code, estado="EJ"), timeout=30)
-                probe["F_get_session"] = _info(r.text)
-            except Exception as e:  # noqa: BLE001
-                probe["F_get_session"] = {"error": str(e)[:200]}
-            try:                       # G) POST ohne accion
-                r = s.post(_cfg.PORTAL_SEARCH, data=pairs, timeout=30)
-                probe["G_post_plain"] = _info(r.text)
-            except Exception as e:  # noqa: BLE001
-                probe["G_post_plain"] = {"error": str(e)[:200]}
-            out["province_search_probe"] = probe
+            import json as _json
+            sec4 = None
+            for diario in diarios:
+                for seccion in boe_api._aslist(diario.get("seccion")):
+                    if str(seccion.get("codigo")) == "4":
+                        sec4 = seccion
+                        break
+                if sec4:
+                    break
+            if sec4:
+                probe = {"seccion_keys": list(sec4.keys())}
+                # Verschachtelung anzeigen (departamento/epigrafe-Namen)
+                deps = boe_api._aslist(sec4.get("departamento"))
+                probe["n_departamentos"] = len(deps)
+                if deps:
+                    d0 = deps[0]
+                    probe["departamento_keys"] = list(d0.keys()) if isinstance(d0, dict) else str(type(d0))
+                    probe["departamento_nombre"] = d0.get("nombre") if isinstance(d0, dict) else None
+                its = list(boe_api._iter_items(sec4))
+                if its:
+                    probe["item_keys"] = list(its[0].keys())
+                    probe["item_sample"] = _json.dumps(its[0], ensure_ascii=False)[:500]
+                probe["raw_head"] = _json.dumps(sec4, ensure_ascii=False)[:1400]
+                out["section4_structure"] = probe
+            else:
+                out["section4_structure"] = "keine Sektion 4 gefunden"
         except Exception as e:  # noqa: BLE001
-            out["province_search_probe"] = {"error": str(e)[:200]}
+            out["section4_structure"] = {"error": str(e)[:200]}
     except Exception as e:  # noqa: BLE001
         out["fatal"] = str(e)
     return out
