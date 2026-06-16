@@ -4,6 +4,7 @@ services:
     name: auction-sonar
     runtime: docker
     dockerfilePath: boe-subastas/Dockerfile
+    dockerContext: boe-subastas
     plan: starter            # kleinster Always-on-Plan (Free-Plan schläft ein)
     healthCheckPath: /healthz
     envVars:
