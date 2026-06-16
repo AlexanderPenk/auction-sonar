@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 
 import config
@@ -39,6 +40,66 @@ def discover_via_search(search_urls, store: Store, *, max_pages: int = 50) -> in
     saved = store.save_sub_ids(all_ids)
     log.info("Such-Discovery: %s SUB-IDs gemerkt", len(all_ids))
     return saved
+
+
+# ── Inkrementelles, provinz-gezieltes Crawlen ────────────────────────────────
+def _load_crawl_state() -> dict:
+    try:
+        return json.loads(config.CRAWL_STATE_PATH.read_text("utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _save_crawl_state(state: dict) -> None:
+    try:
+        config.CRAWL_STATE_PATH.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2), "utf-8")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("crawl_state nicht gespeichert: %s", exc)
+
+
+def discover_via_province_search(store: Store, provinces, *, estado: str | None = None,
+                                 tipo: str = "", max_pages: int = 50,
+                                 force: bool = False, fresh_days: int | None = None) -> dict:
+    """Sucht je Provinz gezielt im Portal (nur diese Provinz!) und merkt die SUB-IDs.
+    Überspringt Provinzen, die innerhalb des Schonfensters schon durchsucht wurden,
+    außer bei force=True. So bleibt der wöchentliche Lauf kurz und portal-schonend."""
+    from portal import Portal, build_search_url
+    estado = config.PORTAL_SEARCH_ESTADO if estado is None else estado
+    fresh_days = config.CRAWL_FRESH_DAYS if fresh_days is None else fresh_days
+    state = _load_crawl_state()
+    now = dt.datetime.now(dt.timezone.utc)
+    portal = Portal()
+    all_ids: list[str] = []
+    per_prov: dict = {}
+    skipped: list[str] = []
+    for prov in provinces:
+        code = config.province_code(prov)
+        if not code:
+            per_prov[prov] = {"error": "kein Provinz-Code bekannt"}
+            continue
+        last = (state.get(code) or {}).get("last_search")
+        if not force and last:
+            try:
+                age = (now - dt.datetime.fromisoformat(last)).total_seconds() / 86400
+                if age < fresh_days:
+                    skipped.append(prov)
+                    per_prov[prov] = {"skipped_fresh": True, "age_days": round(age, 1)}
+                    continue
+            except Exception:  # noqa: BLE001
+                pass
+        url = build_search_url(code, estado=estado, tipo=tipo)
+        ids = portal.search_sub_ids(url, max_pages=max_pages)
+        all_ids.extend(ids)
+        per_prov[prov] = {"found": len(ids)}
+        state[code] = {"province": prov, "last_search": now.isoformat(), "found": len(ids)}
+    all_ids = list(dict.fromkeys(all_ids))
+    saved = store.save_sub_ids(all_ids)
+    _save_crawl_state(state)
+    log.info("Provinz-Suche: %s SUB-IDs (%s Provinzen durchsucht, %s übersprungen)",
+             len(all_ids), len(provinces) - len(skipped), len(skipped))
+    return {"sub_ids": len(all_ids), "saved": saved,
+            "per_province": per_prov, "skipped_fresh": skipped}
 
 
 def _in_focus(sub) -> bool:
@@ -109,11 +170,17 @@ def run(start: dt.date, end: dt.date, out: str, limit: int | None = None) -> Non
     log.info("Export geschrieben: %s", path)
 
 
-def crawl_now(days_back: int = 30, limit: int | None = None) -> dict:
-    """Vollständiger Lauf für den Live-Server: Discovery (Scope-gesteuert) →
-    Enrich → Catastro → Geocode → Idealista. Externe Schritte sind fehlertolerant,
-    damit fehlende Keys/Netzwerkprobleme den Lauf nicht abbrechen.
-    Liest den Suchraum aus config (inkl. scope.json). Gibt eine Zusammenfassung zurück.
+def crawl_now(days_back: int = 30, limit: int | None = None, *, force: bool = False) -> dict:
+    """Vollständiger Lauf für den Live-Server: Discovery → Enrich → Catastro →
+    Geocode → Idealista. Externe Schritte sind fehlertolerant.
+
+    Discovery-Strategie:
+      • Provinzen im Scope gesetzt → gezielte Portal-Suche je Provinz (schnell,
+        portal-schonend, inkrementell: kürzlich durchsuchte Provinzen werden
+        übersprungen, außer force=True).
+      • sonst SEARCH_URLS → diese durchblättern.
+      • sonst → API-Discovery über das Tagessumario (spanienweit, langsamer).
+    Enrich läuft nur über noch nicht angereicherte SUB-IDs (inkrementell).
     """
     import config
 
@@ -121,7 +188,23 @@ def crawl_now(days_back: int = 30, limit: int | None = None) -> dict:
     summary: dict = {"discovered": 0, "enriched": 0, "steps": {}}
     store = Store()
     try:
-        if config.SEARCH_URLS:
+        if config.FOCUS_PROVINCIAS:
+            res = discover_via_province_search(
+                store, list(config.FOCUS_PROVINCIAS), force=force)
+            summary["mode"] = "province"
+            summary["discovered"] = res["sub_ids"]
+            summary["province_detail"] = res["per_province"]
+            summary["skipped_fresh"] = res["skipped_fresh"]
+            # Sicherheitsnetz: Wenn die Portal-Suche nichts liefert UND keine
+            # Provinz nur wegen des Schonfensters übersprungen wurde, auf die
+            # API-Discovery zurückfallen, damit ein Lauf nie leer ausgeht.
+            if res["sub_ids"] == 0 and not res["skipped_fresh"]:
+                end = dt.date.today()
+                start = end - dt.timedelta(days=days_back)
+                summary["discovered"] = discover(start, end, store)
+                summary["mode"] = "province→api-fallback"
+                summary["window"] = [start.isoformat(), end.isoformat()]
+        elif config.SEARCH_URLS:
             summary["discovered"] = discover_via_search(list(config.SEARCH_URLS), store)
             summary["mode"] = "search"
         else:

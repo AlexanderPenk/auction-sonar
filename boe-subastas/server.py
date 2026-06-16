@@ -115,7 +115,7 @@ def auth(creds: HTTPBasicCredentials | None = Depends(security)) -> None:
 
 
 # ── Crawl-Ausführung ────────────────────────────────────────────────────
-def _run_crawl() -> None:
+def _run_crawl(force: bool = False) -> None:
     with _state_lock:
         if _state["running"]:
             return
@@ -123,7 +123,7 @@ def _run_crawl() -> None:
         _state["last_error"] = None
     try:
         days = int(os.getenv("CRAWL_DAYS_BACK", "30"))
-        summary = pipeline.crawl_now(days_back=days)
+        summary = pipeline.crawl_now(days_back=days, force=force)
         # tatsächlich verwendeten Suchraum festhalten (config nach reload_scope)
         scope = {
             "focus_provincias": list(config.FOCUS_PROVINCIAS),
@@ -145,11 +145,11 @@ def _run_crawl() -> None:
             _state["running"] = False
 
 
-def _start_crawl_thread() -> bool:
+def _start_crawl_thread(force: bool = False) -> bool:
     with _state_lock:
         if _state["running"]:
             return False
-    threading.Thread(target=_run_crawl, daemon=True).start()
+    threading.Thread(target=_run_crawl, kwargs={"force": force}, daemon=True).start()
     return True
 
 
@@ -217,10 +217,10 @@ def api_scope_set(scope: dict, _: None = Depends(auth)) -> dict:
 
 
 @app.post("/api/crawl")
-def api_crawl(_: None = Depends(auth)) -> JSONResponse:
-    started = _start_crawl_thread()
+def api_crawl(force: int = 0, _: None = Depends(auth)) -> JSONResponse:
+    started = _start_crawl_thread(force=bool(force))
     code = 202 if started else 409
-    return JSONResponse({"started": started}, status_code=code)
+    return JSONResponse({"started": started, "force": bool(force)}, status_code=code)
 
 
 @app.get("/api/debug")
@@ -301,6 +301,30 @@ def api_debug(_: None = Depends(auth)) -> dict:
                 }
             except Exception as e:  # noqa: BLE001
                 out["portal_detail"] = {"ok": False, "sub_id": sub_id, "error": str(e)[:300]}
+
+        # NEU: provinz-gezielte Portal-Suche testen (kalibriert estado).
+        try:
+            import config as _cfg
+            from portal import build_search_url
+            _cfg.reload_scope()
+            test_prov = (list(_cfg.FOCUS_PROVINCIAS) or ["Madrid"])[0]
+            code = _cfg.province_code(test_prov)
+            probe = {"province": test_prov, "cod_provincia": code}
+            if code:
+                for estado in (_cfg.PORTAL_SEARCH_ESTADO, "", "EJ"):
+                    try:
+                        url = build_search_url(code, estado=estado)
+                        ids = api.fetcher.get_text(url)
+                        import re as _re
+                        found = list(dict.fromkeys(
+                            _re.findall(r"idSub=(SUB-[A-Z0-9-]+)", ids)))
+                        probe[f"estado='{estado}'"] = {"n_found": len(found),
+                                                       "sample": found[:3]}
+                    except Exception as e:  # noqa: BLE001
+                        probe[f"estado='{estado}'"] = {"error": str(e)[:200]}
+            out["province_search_probe"] = probe
+        except Exception as e:  # noqa: BLE001
+            out["province_search_probe"] = {"error": str(e)[:200]}
     except Exception as e:  # noqa: BLE001
         out["fatal"] = str(e)
     return out

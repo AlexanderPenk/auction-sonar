@@ -60,6 +60,46 @@ def build_detail_url(sub_id: str, ver: int = 1, id_bus: str | None = None) -> st
     return url
 
 
+# Feldreihenfolge der erweiterten Portal-Suche (subastas_ava.php), abgeleitet aus
+# einer echten geteilten Such-URL. Wir füllen nur Status, Bien-Typ und Provinz.
+_SEARCH_FIELDS = [
+    ("SUBASTA.ORIGEN", ""),                       # 0
+    ("SUBASTA.AUTORIDAD", ""),                    # 1
+    ("SUBASTA.ESTADO", None),                     # 2  ← estado
+    ("BIEN.TIPO", None),                          # 3  ← tipo de bien
+    (None, ""),                                   # 4  (nur dato[4]=)
+    ("BIEN.DIRECCION", ""),                       # 5
+    ("BIEN.CODPOSTAL", ""),                       # 6
+    ("BIEN.LOCALIDAD", ""),                       # 7
+    ("BIEN.COD_PROVINCIA", None),                 # 8  ← Provinz-Code
+    ("SUBASTA.POSTURA_MINIMA_MINIMA_LOTES", ""),  # 9
+    ("SUBASTA.NUM_CUENTA_EXPEDIENTE_1", ""),      # 10
+    ("SUBASTA.NUM_CUENTA_EXPEDIENTE_2", ""),      # 11
+    ("SUBASTA.NUM_CUENTA_EXPEDIENTE_3", ""),      # 12
+    ("SUBASTA.NUM_CUENTA_EXPEDIENTE_4", ""),      # 13
+    ("SUBASTA.NUM_CUENTA_EXPEDIENTE_5", ""),      # 14
+    ("SUBASTA.ID_SUBASTA_BUSCAR", ""),            # 15
+]
+
+
+def build_search_url(cod_provincia: str, *, estado: str = "", tipo: str = "") -> str:
+    """Erweiterte Portal-Suche, gefiltert auf eine Provinz (INE-Code).
+    Optional Status (z. B. "EJ" = offen) und Bien-Typ. Liefert Trefferseite 1."""
+    import urllib.parse as _url
+    subst = {2: estado, 3: tipo, 8: cod_provincia}
+    pairs: list[tuple[str, str]] = []
+    for i, (campo, fixed) in enumerate(_SEARCH_FIELDS):
+        if campo is not None:
+            pairs.append((f"campo[{i}]", campo))
+        pairs.append((f"dato[{i}]", subst.get(i, fixed) or ""))
+    # Datumsfelder als Array (leer = keine Einschränkung)
+    for i, campo in ((16, "SUBASTA.FECHA_FIN_YMD"), (17, "SUBASTA.FECHA_INICIO_YMD")):
+        pairs.append((f"campo[{i}]", campo))
+        pairs.append((f"dato[{i}][0]", ""))
+        pairs.append((f"dato[{i}][1]", ""))
+    return f"{config.PORTAL_SEARCH}?{_url.urlencode(pairs)}"
+
+
 def harvest_pairs(soup: BeautifulSoup, scope_selector: str | None = None) -> dict[str, str]:
     """{label_lowercase: wert} aus th/td- und dt/dd-Strukturen.
 

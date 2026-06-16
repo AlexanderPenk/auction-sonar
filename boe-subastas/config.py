@@ -37,6 +37,56 @@ BOE_API_BASE = "https://boe.es/datosabiertos/api/boe/sumario"   # /YYYYMMDD
 PORTAL_BASE = "https://subastas.boe.es"
 PORTAL_DETAIL = PORTAL_BASE + "/detalleSubasta.php"             # ?idSub=SUB-...
 PORTAL_DOC = PORTAL_BASE + "/verDocumento.php"                  # ?idSub=...&doc=...
+PORTAL_SEARCH = PORTAL_BASE + "/subastas_ava.php"              # erweiterte Suche
+
+# Status-Filter der Portal-Suche (SUBASTA.ESTADO). "" = alle Status.
+# Bekannte Codes: EJ = celebrándose (offen, Gebote möglich), PP/PU = próxima,
+# CE/CO = concluida, SU = suspendida, CA = cancelada.
+PORTAL_SEARCH_ESTADO = "EJ"
+
+# ── Provinz → INE-Code (für BIEN.COD_PROVINCIA in der Portal-Suche) ───────────
+PROVINCE_CODES: dict[str, str] = {
+    "alava": "01", "araba": "01", "albacete": "02", "alicante": "03", "alacant": "03",
+    "almeria": "04", "avila": "05", "badajoz": "06", "illes balears": "07",
+    "islas baleares": "07", "baleares": "07", "barcelona": "08", "burgos": "09",
+    "caceres": "10", "cadiz": "11", "castellon": "12", "castello": "12",
+    "ciudad real": "13", "cordoba": "14", "a coruna": "15", "la coruna": "15",
+    "coruna": "15", "cuenca": "16", "girona": "17", "gerona": "17", "granada": "18",
+    "guadalajara": "19", "gipuzkoa": "20", "guipuzcoa": "20", "huelva": "21",
+    "huesca": "22", "jaen": "23", "leon": "24", "lleida": "25", "lerida": "25",
+    "la rioja": "26", "rioja": "26", "lugo": "27", "madrid": "28", "malaga": "29",
+    "murcia": "30", "navarra": "31", "nafarroa": "31", "ourense": "32", "orense": "32",
+    "asturias": "33", "palencia": "34", "las palmas": "35", "pontevedra": "36",
+    "salamanca": "37", "santa cruz de tenerife": "38", "tenerife": "38",
+    "cantabria": "39", "segovia": "40", "sevilla": "41", "soria": "42",
+    "tarragona": "43", "teruel": "44", "toledo": "45", "valencia": "46",
+    "valencia/valencia": "46", "valladolid": "47", "bizkaia": "48", "vizcaya": "48",
+    "zamora": "49", "zaragoza": "50", "ceuta": "51", "melilla": "52",
+}
+
+
+def province_code(name: str) -> str | None:
+    """Provinzname (auch zweisprachig, mit/ohne Akzent) → INE-Code für die Portal-Suche."""
+    import unicodedata
+    if not name:
+        return None
+    # erst vollständig normalisieren (Akzente weg, klein), dann ggf. Teil vor '/'
+    def norm(s: str) -> str:
+        s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower().strip()
+        return " ".join(s.split())
+    full = norm(name)
+    if full in PROVINCE_CODES:
+        return PROVINCE_CODES[full]
+    head = norm(name.split("/")[0])
+    return PROVINCE_CODES.get(head)
+
+
+# ── Inkrementelles Crawlen ───────────────────────────────────────────────────
+# Eine Provinz wird übersprungen, wenn sie innerhalb dieses Fensters schon
+# durchsucht wurde (außer bei "Force refresh"). Versteigerungen haben Wochen
+# Vorlauf — eine Liste 1–3 Tage später zu sehen ist unkritisch.
+CRAWL_FRESH_DAYS = 3
+CRAWL_STATE_PATH = DATA_DIR / "crawl_state.json"   # je Provinz: zuletzt durchsucht
 
 # ── Subasta-Filter für die API-Discovery ─────────────────────────────────────
 # Anuncios, deren Titel eines dieser Wörter enthält, gelten als Versteigerung.
