@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auction Sonar — Spanish property auctions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{
+  --paper:#EEF0F4; --surface:#FFFFFF; --ink:#17191F; --muted:#6B7280;
+  --line:#E1E4EA; --line-soft:#EEF0F3;
+  --seal:#B23A2E; --seal-deep:#8C2A20;
+  --bar:#20413F; --amber:#9A6B12; --amber-bg:#F7EFD9;
+  --good:#2F6F4F; --good-bg:#E7EEEA; --neutral-bg:#EEF1F4;
+  --rail:272px; --radius:10px;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --sans:"Inter",system-ui,-apple-system,sans-serif;
+  --serif:"Spectral",Georgia,serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:13px;line-height:1.4;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+
+/* Header */
+header.top{display:flex;align-items:center;gap:16px;padding:13px 22px;background:var(--surface);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:1000}
+.brand{display:flex;align-items:center;gap:11px;flex:0 0 auto}
+.logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(150deg,#2A5E5A,#15302E);display:grid;place-items:center;flex:0 0 auto}
+.logo svg{width:21px;height:21px}
+.brand h1{font-family:var(--sans);font-weight:600;font-size:17px;letter-spacing:-.01em;margin:0}
+.brand .sub{color:var(--muted);font-size:11.5px}
+.toggle{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:0 0 auto}
+body.rail-collapsed aside.rail{display:none}
+body.rail-collapsed .shell{grid-template-columns:1fr}
+.rail-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.rail-title{font-size:12px;font-weight:600;color:var(--ink)}
+.rail-collapse{all:unset;cursor:pointer;display:grid;place-items:center;width:26px;height:26px;border-radius:7px;color:var(--muted)}
+.rail-collapse:hover{background:var(--paper);color:var(--ink)}
+.rail-collapse:focus-visible{outline:2px solid var(--bar);outline-offset:2px}
+.rail-reopen{display:none;position:fixed;left:0;top:74px;z-index:30;align-items:center;gap:6px;
+  padding:9px 11px;border:1px solid var(--line);border-left:none;border-radius:0 9px 9px 0;
+  background:var(--surface);font:inherit;font-size:12px;color:var(--ink);cursor:pointer;
+  box-shadow:1px 1px 6px rgba(20,30,40,.08)}
+.rail-reopen:hover{background:#EEF1F4}
+.rail-reopen:focus-visible{outline:2px solid var(--bar);outline-offset:2px}
+body.rail-collapsed .rail-reopen{display:inline-flex}
+body.scope .rail-reopen{display:none!important}
+.toggle button{all:unset;padding:8px 16px;font-size:13px;cursor:pointer;color:var(--muted);display:flex;align-items:center;gap:6px}
+.toggle button[aria-selected="true"]{background:var(--ink);color:#fff}
+.toggle button:focus-visible{outline:2px solid var(--bar);outline-offset:-2px}
+.search{margin-left:auto;flex:1 1 320px;max-width:420px;position:relative}
+.search input{width:100%;padding:9px 12px 9px 34px;border:1px solid var(--line);border-radius:8px;background:var(--paper);font:inherit;color:var(--ink)}
+.search input:focus{outline:2px solid var(--bar);outline-offset:1px;background:#fff}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted)}
+
+/* Shell */
+.shell{display:grid;grid-template-columns:var(--rail) 1fr;height:calc(100vh - 59px)}
+aside.rail{overflow:auto;padding:16px 16px 40px;border-right:1px solid var(--line);background:var(--surface)}
+.rail h2{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:20px 0 10px;padding-top:16px;border-top:1px solid var(--line-soft)}
+.rail h2:first-child{margin-top:4px;padding-top:0;border-top:none}
+.field{margin-bottom:13px}
+.field label{display:block;font-size:12px;color:var(--muted);font-weight:500;margin-bottom:6px}
+select,.minmax input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font:inherit;color:var(--ink)}
+select[multiple]{height:150px;padding:4px}
+select[multiple] option{padding:3px 6px;border-radius:4px}
+select:focus,.minmax input:focus{outline:2px solid var(--bar);outline-offset:1px;background:#fff}
+.minmax{display:flex;gap:7px;align-items:center}.minmax span{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12px;padding:5px 11px;border:1px solid var(--line);border-radius:99px;background:var(--surface);cursor:pointer;user-select:none}
+.chip[aria-pressed="true"]{background:var(--bar);color:#fff;border-color:var(--bar)}
+.chip:focus-visible{outline:2px solid var(--bar);outline-offset:2px}
+.reset{margin-top:10px;width:100%;padding:9px;border:1px solid var(--line);background:var(--paper);border-radius:7px;font:inherit;cursor:pointer}
+.reset:hover{background:#E7EAEF}
+
+/* Main */
+main{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.statbar{display:flex;gap:26px;flex-wrap:wrap;padding:13px 22px;border-bottom:1px solid var(--line);background:var(--surface);flex:0 0 auto}
+.stat .k{font-family:var(--mono);font-size:19px;font-weight:500}
+.stat .k .small{font-size:12px;color:var(--muted)}
+.stat .l{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
+
+/* Table */
+.tablewrap{overflow:auto;flex:1 1 auto}
+table.grid{border-collapse:separate;border-spacing:0;width:100%;min-width:1040px}
+table.grid thead th{position:sticky;top:0;background:var(--paper);z-index:5;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.grid thead th.r{text-align:right}
+table.grid thead th button{all:unset;cursor:pointer;display:inline-flex;gap:4px;align-items:center}
+table.grid thead th button:focus-visible{outline:2px solid var(--bar);outline-offset:2px}
+.arr{opacity:.35;font-size:9px}
+th[data-active="1"]{color:var(--ink)} th[data-active="1"] .arr{opacity:1;color:var(--seal)}
+table.grid tbody td{padding:8px 10px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+tbody tr.data{cursor:pointer}
+tbody tr.data:hover td{background:#F7F8FA}
+tbody tr.data:focus-visible{outline:2px solid var(--bar);outline-offset:-2px}
+.muni{font-weight:600;white-space:nowrap}.prov{color:var(--muted)}
+.obj{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#3a414c}
+.tipo-tag{font-size:11px;color:#465063;white-space:nowrap}
+.disc{font-family:var(--mono);text-align:right;color:var(--seal-deep);font-weight:500}
+.disc.none{color:var(--muted);font-weight:400}
+.up-pos{color:var(--good);font-weight:600}
+.up-neg{color:var(--seal);font-weight:500}
+.m2-diff{color:var(--amber);font-weight:500}
+.uso{font-size:11px;color:#465063;white-space:nowrap}
+.yn{font-size:11px;padding:2px 7px;border-radius:99px;background:var(--neutral-bg)}
+.yn.no{background:var(--good-bg);color:var(--good)}.yn.si{background:var(--amber-bg);color:var(--amber)}
+.pos{font-size:11px;white-space:nowrap}.pos.occ{color:var(--amber);font-weight:500}
+.refcat{font-family:var(--mono);font-size:11px;color:#69707b;white-space:nowrap}
+.days{font-family:var(--mono);font-weight:500;white-space:nowrap}
+.days.soon{color:var(--seal)}.days.closed{color:#aab0ba}
+.acts{display:flex;gap:6px;white-space:nowrap}
+.iconbtn{display:grid;place-items:center;width:26px;height:26px;border:1px solid var(--line);border-radius:6px;color:#56606e;text-decoration:none}
+.iconbtn:hover{background:#EEF1F4;color:var(--ink)}
+.iconbtn:focus-visible{outline:2px solid var(--bar);outline-offset:1px}
+
+/* detail row */
+tr.detail td{background:#F8F9FB;border-bottom:1px solid var(--line);padding:0}
+.detailgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 22px;padding:16px 22px}
+.detailgrid dl{margin:0}.detailgrid dt{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.detailgrid dd{margin:2px 0 0;font-size:12.5px}
+.detailgrid .full{grid-column:1/-1}
+.docs{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.docs a,.maps-inline{font-size:12px;padding:6px 11px;border:1px solid var(--line);border-radius:7px;text-decoration:none;background:#fff;display:inline-flex;gap:6px;align-items:center}
+.docs a:hover,.maps-inline:hover{background:#EEF1F4}
+.open-boe a{color:var(--seal-deep);font-weight:600;text-decoration:none;font-size:12.5px}
+
+/* Map */
+#mapview{flex:1 1 auto;position:relative;display:none}
+#map{position:absolute;inset:0}
+.mapnote{position:absolute;left:12px;bottom:12px;z-index:600;background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:12px;color:var(--muted);box-shadow:0 2px 8px rgba(20,30,40,.08)}
+.mapfail{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:32px;color:var(--muted)}
+.mapfail b{display:block;color:var(--ink);font-family:var(--serif);font-size:18px;margin-bottom:8px}
+.mapfail .hint{margin-top:10px;font-size:12px;max-width:380px}
+.leaflet-popup-content{font-family:var(--sans);font-size:12.5px;margin:11px 13px}
+.pp-muni{font-weight:600;font-family:var(--serif);font-size:14px}
+.pp-row{margin-top:3px}.pp-links{margin-top:7px;display:flex;gap:8px}
+.pp-links a{color:var(--seal-deep);font-weight:600;text-decoration:none}
+
+.empty{padding:64px 24px;text-align:center;color:var(--muted)}
+.empty b{display:block;color:var(--ink);font-family:var(--serif);font-size:18px;margin-bottom:6px}
+
+body.map .tablewrap{display:none}
+body.map #mapview{display:block}
+body.scope .tablewrap,body.scope #mapview,body.scope .statbar,body.scope aside.rail{display:none}
+body.scope .shell{grid-template-columns:1fr}
+body.scope #scopeview{display:block}
+
+/* Scope-Tab */
+#scopeview{display:none;flex:1 1 auto;overflow:auto;padding:22px}
+.scope-wrap{max-width:880px;margin:0 auto}
+.scope-intro{color:#3a414c;font-size:13px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);padding:14px 16px;margin:0 0 16px}
+.scope-intro code{font-family:var(--mono);background:var(--paper);padding:1px 5px;border-radius:4px}
+.scope-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px;margin-bottom:14px}
+.scope-card h3{font-family:var(--serif);font-size:15px;margin:0 0 12px}
+.muted2{color:var(--muted);font-weight:400;font-size:12px}
+.scope-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.scope-head h3{margin:0}
+.scope-tools{display:flex;gap:8px;align-items:center}
+.scope-tools input{padding:6px 9px;border:1px solid var(--line);border-radius:7px;background:var(--paper);font:inherit}
+.linkbtn{all:unset;cursor:pointer;font-size:12px;color:var(--seal-deep);font-weight:600}
+.linkbtn:focus-visible{outline:2px solid var(--bar);outline-offset:2px}
+.prov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+.prov-grid .chip{justify-content:flex-start;display:flex}
+.prov-grid .chip.hide{display:none}
+.scope-hint{font-size:12px;color:var(--muted);margin:0 0 10px}
+.scope-card textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px;
+  font-family:var(--mono);font-size:12px;background:var(--paper);resize:vertical}
+.scope-defaults{display:flex;gap:18px;flex-wrap:wrap}
+.scope-defaults label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)}
+.scope-defaults input{width:140px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--paper);font:inherit;color:var(--ink)}
+.scope-actions{display:flex;gap:10px;align-items:center;margin:4px 0 16px}
+.btn{padding:9px 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface);
+  font:inherit;cursor:pointer;color:var(--ink)}
+.btn:hover{background:#EEF1F4}
+.btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+.btn.primary:hover{background:#000}
+.btn:focus-visible{outline:2px solid var(--bar);outline-offset:2px}
+.scope-saved{color:var(--good);font-size:12px;font-weight:600}
+.scope-server{background:linear-gradient(0deg,var(--surface),var(--surface)) padding-box,var(--surface)}
+.srv-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.srv-title{font-weight:600;font-size:14px}
+.srv-status{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-direction:column;gap:2px}
+.srv-status .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--good);margin-right:6px;vertical-align:middle}
+.srv-status.busy .dot{background:var(--amber);animation:pulse 1s infinite}
+.srv-sub{color:var(--muted)}
+.srv-stale{color:var(--amber);font-weight:600}
+@keyframes pulse{50%{opacity:.35}}
+.srv-actions{display:flex;gap:9px;align-items:center}
+body.server-mode #scopeOffline{display:none}
+.scope-cli .cli-label{font-size:12px;color:var(--muted);margin-bottom:6px}
+.scope-cli pre{background:#16181D;color:#E6E8EC;border-radius:8px;padding:14px 16px;
+  font-family:var(--mono);font-size:12px;overflow-x:auto;margin:0;white-space:pre-wrap}
+
+@media (max-width:900px){
+  .shell{grid-template-columns:1fr;height:auto}
+  aside.rail{border-right:none;border-bottom:1px solid var(--line)}
+  main{height:auto}.tablewrap{max-height:none}
+  #mapview{height:70vh}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* Insights */
+#insightsview{display:none;flex:1 1 auto;overflow:auto;padding:26px}
+.ins-wrap{max-width:940px;margin:0 auto}
+.ins-wrap p.lead{color:#3a414c;font-size:14px;margin:0 0 24px;max-width:680px}
+.ins-group{margin-bottom:30px}
+.ins-group h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.ins-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.ins-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:15px 16px}
+.ins-card .term{font-weight:600;font-size:14px}
+.ins-card .es{font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:400}
+.ins-card p{margin:7px 0 0;font-size:12.5px;color:#3a414c;line-height:1.55}
+.ins-card .tag{display:inline-block;margin-top:9px;font-size:11px;border-radius:99px;padding:2px 9px}
+.ins-card .tag.good{color:var(--good);background:var(--good-bg)}
+.ins-card .tag.warn{color:var(--amber);background:var(--amber-bg)}
+.ins-card .tag.note{color:var(--seal-deep);background:#F6E4E1}
+body.insights aside.rail,body.insights .rail-reopen{display:none!important}
+body.insights .shell{grid-template-columns:1fr}
+body.insights .tablewrap,body.insights #mapview,body.insights #scopeview{display:none}
+body.insights #insightsview{display:block}
+body.insights .rail-reopen{display:none!important}
+body.scope .search,body.insights .search{visibility:hidden}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><div class="logo" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round">
+      <circle cx="6" cy="18" r="1.5" fill="#fff" stroke="none"/>
+      <path d="M6 13.5 A4.5 4.5 0 0 1 10.5 18"/>
+      <path d="M6 9 A9 9 0 0 1 15 18"/>
+      <path d="M6 4.5 A13.5 13.5 0 0 1 19.5 18" opacity=".55"/></svg></div>
+    <div><h1>Auction Sonar</h1><div class="sub">Spanish property auctions</div></div></div>
+  <div class="toggle" role="tablist" aria-label="Ansicht">
+    <button id="tabScope" role="tab" aria-selected="false">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M7 12h10M11 18h2"/></svg>Scope</button>
+    <button id="tabTabla" role="tab" aria-selected="true">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9h18M3 15h18M9 3v18"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>Table</button>
+    <button id="tabMapa" role="tab" aria-selected="false">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg>Map</button>
+    <button id="tabInsights" role="tab" aria-selected="false">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>Insights</button>
+  </div>
+  <div class="search">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    <input id="q" type="search" placeholder="Search: town, description, cadastral ref, ID…" aria-label="Search">
+  </div>
+</header>
+
+<button id="railReopen" class="rail-reopen" aria-label="Show filters" title="Show filters">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
+  <span>Filters</span>
+</button>
+
+<div class="shell">
+  <aside class="rail">
+    <div class="rail-head"><span class="rail-title">Filters</span>
+      <button id="railCollapse" class="rail-collapse" aria-label="Hide filters" title="Hide filters">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button></div>
+    <h2>Location</h2>
+    <div class="field"><label for="fProv">Province</label><select id="fProv" multiple></select></div>
+    <h2>Auction</h2>
+    <div class="field"><label for="fTipo">Type</label><select id="fTipo"><option value="">All</option></select></div>
+    <div class="field"><label for="fSubtipo">Property type</label><select id="fSubtipo"><option value="">All</option></select></div>
+    <h2>Price</h2>
+    <div class="field"><label>Auction value (€)</label>
+      <div class="minmax"><input id="vMin" type="number" placeholder="min"><span>–</span><input id="vMax" type="number" placeholder="max"></div></div>
+    <div class="field"><label for="dMax">Deposit max (€)</label>
+      <div class="minmax"><input id="dMax" type="number" placeholder="e.g. 10000"></div></div>
+    <div class="field"><label for="pm2Max">€/m² max (on value)</label>
+      <div class="minmax"><input id="pm2Max" type="number" placeholder="e.g. 1500"></div></div>
+    <div class="field"><label for="upMin">Upside min (%)</label>
+      <div class="minmax"><input id="upMin" type="number" placeholder="e.g. 30"></div></div>
+    <h2>Status &amp; risk</h2>
+    <div class="field"><label>Primary residence</label>
+      <div class="chips" id="fHab"><span class="chip" role="button" tabindex="0" data-v="No" aria-pressed="false">No</span><span class="chip" role="button" tabindex="0" data-v="Sí" aria-pressed="false">Yes</span></div></div>
+    <div class="field"><label>Occupancy</label><div class="chips" id="fPos"></div></div>
+    <div class="field"><label>Deadline</label><div class="chips" id="fOpen"><span class="chip" role="button" tabindex="0" data-v="open" aria-pressed="false">Open only</span></div></div>
+    <button class="reset" id="reset">Reset filters</button>
+  </aside>
+
+  <main>
+    <div class="tablewrap">
+      <table class="grid">
+        <thead><tr id="thead">
+          <th class="r"><button data-sort="days" data-active="1">Days<span class="arr">↑</span></button></th>
+          <th><button data-sort="place">Location<span class="arr">↕</span></button></th>
+          <th>Property</th>
+          <th><button data-sort="tipo">Type<span class="arr">↕</span></button></th>
+          <th class="r"><button data-sort="valor">Value<span class="arr">↕</span></button></th>
+          <th class="r"><button data-sort="disc">Disc.<span class="arr">↕</span></button></th>
+          <th class="r"><button data-sort="pm2">€/m²<span class="arr">↕</span></button></th>
+          <th class="r"><button data-sort="mkt">Market<span class="arr">↕</span></button></th>
+          <th class="r"><button data-sort="ups">Upside<span class="arr">↕</span></button></th>
+          <th class="r"><button data-sort="sup" title="cadastral / appraisal m²">m² c/a<span class="arr">↕</span></button></th>
+          <th class="r"><button data-sort="dep">Deposit<span class="arr">↕</span></button></th>
+          <th><button data-sort="anio">Year<span class="arr">↕</span></button></th>
+          <th>Use</th><th>Primary</th><th>Occupancy</th><th>Cadastral ref</th><th></th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div id="mapview"><div id="map"></div><div class="mapnote" id="mapnote"></div></div>
+    <div id="scopeview">
+      <div class="scope-wrap">
+        <p class="scope-intro">Define your <b>crawler search area</b> — which provinces, auction
+          types and property types to pull. (The filters in the table / map view only affect data
+          that is already loaded.)</p>
+
+        <section class="scope-card scope-server" id="scopeServer" hidden>
+          <div class="srv-row">
+            <div><div class="srv-title">Live server</div>
+              <div class="srv-status" id="srvStatus">—</div></div>
+            <div class="srv-actions">
+              <button class="btn" id="srvSave">Save scope to server</button>
+              <button class="btn primary" id="srvCrawl">Crawl now</button>
+              <span class="scope-saved" id="srvSaved" hidden>saved ✓</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="scope-card">
+          <div class="scope-head"><h3>Provinces</h3>
+            <div class="scope-tools">
+              <input id="provSearch" type="search" placeholder="filter…" aria-label="Filter provinces">
+              <button class="linkbtn" id="provAll">All</button>
+              <button class="linkbtn" id="provNone">None</button>
+            </div>
+          </div>
+          <div class="prov-grid" id="provGrid"></div>
+        </section>
+
+        <section class="scope-card">
+          <h3>Auction type</h3>
+          <div class="chips" id="scopeTipos">
+            <span class="chip" role="button" tabindex="0" data-v="JUDICIAL" aria-pressed="false">Judicial</span>
+            <span class="chip" role="button" tabindex="0" data-v="NOTARIAL" aria-pressed="false">Notarial</span>
+            <span class="chip" role="button" tabindex="0" data-v="ADMINISTRATIVA" aria-pressed="false">Administrativa</span>
+          </div>
+        </section>
+
+        <section class="scope-card">
+          <h3>Property type</h3>
+          <div class="chips" id="scopeSubtipos">
+            <span class="chip" role="button" tabindex="0" data-v="Vivienda" aria-pressed="false">Vivienda</span>
+            <span class="chip" role="button" tabindex="0" data-v="Local" aria-pressed="false">Local</span>
+            <span class="chip" role="button" tabindex="0" data-v="Garaje" aria-pressed="false">Garaje / Estacionamiento</span>
+            <span class="chip" role="button" tabindex="0" data-v="Solar" aria-pressed="false">Solar / Suelo</span>
+            <span class="chip" role="button" tabindex="0" data-v="Otros" aria-pressed="false">Otros</span>
+          </div>
+        </section>
+
+        <div id="scopeOffline">
+          <p class="cli-label" style="margin-bottom:8px">For offline use (no server) — export your scope and run the crawler yourself:</p>
+          <div class="scope-actions">
+            <button class="btn primary" id="dlScope">Download scope.json</button>
+            <button class="btn" id="copyScope">Copy as snippet</button>
+            <span class="scope-saved" id="scopeSaved" hidden>copied ✓</span>
+          </div>
+          <div class="scope-cli">
+            <div class="cli-label">Then run in the project folder:</div>
+            <pre id="scopeCli"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="insightsview">
+      <div class="ins-wrap">
+        <p class="lead">A quick reference for the Spanish auction terms used across the dashboard.
+          Spanish originals are shown in grey next to each term.</p>
+
+        <div class="ins-group">
+          <h3>Auction type</h3>
+          <div class="ins-items">
+            <div class="ins-card"><div class="term">Judicial <span class="es">Subasta judicial</span></div>
+              <p>Ordered by a court to enforce a debt — most often a mortgage foreclosure. The court (juzgado) runs it through the BOE portal.</p>
+              <span class="tag note">Court-run</span></div>
+            <div class="ins-card"><div class="term">Notarial <span class="es">Subasta notarial</span></div>
+              <p>Conducted by a notary, typically for out-of-court mortgage enforcement or certain voluntary and inheritance sales.</p>
+              <span class="tag note">Notary-run</span></div>
+            <div class="ins-card"><div class="term">Administrative <span class="es">Subasta administrativa</span></div>
+              <p>Run by a public body — usually the tax agency (AEAT) or Social Security — to collect public debts.</p>
+              <span class="tag note">Agency-run</span></div>
+          </div>
+        </div>
+
+        <div class="ins-group">
+          <h3>Occupancy <span class="es">Situación posesoria</span></h3>
+          <div class="ins-items">
+            <div class="ins-card"><div class="term">Free of occupants <span class="es">Libre de ocupantes</span></div>
+              <p>The property is vacant, so taking possession after the award is straightforward.</p>
+              <span class="tag good">Best case</span></div>
+            <div class="ins-card"><div class="term">Occupied by the debtor <span class="es">Ocupado por el ejecutado</span></div>
+              <p>The former owner still lives there. You may have to go through an eviction to get possession.</p>
+              <span class="tag warn">Eviction risk</span></div>
+            <div class="ins-card"><div class="term">Occupied by third parties <span class="es">Ocupado por terceros</span></div>
+              <p>Tenants or others occupy it. Their rights (e.g. a registered lease) may survive the sale.</p>
+              <span class="tag warn">Check rights</span></div>
+            <div class="ins-card"><div class="term">Unknown <span class="es">No consta</span></div>
+              <p>Occupancy is not stated in the file. Verify on site before bidding.</p>
+              <span class="tag warn">Verify</span></div>
+          </div>
+        </div>
+
+        <div class="ins-group">
+          <h3>Status</h3>
+          <div class="ins-items">
+            <div class="ins-card"><div class="term">Primary residence <span class="es">Vivienda habitual</span></div>
+              <p>The debtor's main home. It carries extra legal protection and changes the minimum award percentages under the LEC, so these deals are more sensitive.</p>
+              <span class="tag note">Sensitive</span></div>
+            <div class="ins-card"><div class="term">Viewable <span class="es">Visitable</span></div>
+              <p>Indicates whether the property can be visited before the auction. Often "no", which raises the unknowns.</p></div>
+          </div>
+        </div>
+
+        <div class="ins-group">
+          <h3>Money &amp; bidding</h3>
+          <div class="ins-items">
+            <div class="ins-card"><div class="term">Auction value <span class="es">Valor de subasta</span></div>
+              <p>The reference/starting value the auction is based on.</p></div>
+            <div class="ins-card"><div class="term">Appraisal <span class="es">Tasación</span></div>
+              <p>The independent appraised market value used in the proceedings.</p></div>
+            <div class="ins-card"><div class="term">Claimed amount <span class="es">Cantidad reclamada</span></div>
+              <p>The outstanding debt being enforced through the auction.</p></div>
+            <div class="ins-card"><div class="term">Deposit <span class="es">Importe del depósito</span></div>
+              <p>What you must pre-pay to be allowed to bid — commonly 5% of the auction value.</p></div>
+            <div class="ins-card"><div class="term">Minimum bid <span class="es">Puja mínima</span></div>
+              <p>The lowest bid the system will accept.</p></div>
+            <div class="ins-card"><div class="term">Discount</div>
+              <p>How far the auction value sits below the appraisal: 1 − value / appraisal.</p></div>
+            <div class="ins-card"><div class="term">€/m²</div>
+              <p>Auction value divided by the surface — a quick price-per-square-metre.</p></div>
+            <div class="ins-card"><div class="term">Market estimate</div>
+              <p>A rough market value from comparable listings (median €/m² × area). Indicative only.</p></div>
+            <div class="ins-card"><div class="term">Upside</div>
+              <p>Estimated gap between the market value and the auction value, as a percentage.</p></div>
+          </div>
+        </div>
+
+        <div class="ins-group">
+          <h3>Property &amp; registry</h3>
+          <div class="ins-items">
+            <div class="ins-card"><div class="term">Cadastral reference <span class="es">Referencia catastral</span></div>
+              <p>The 20-character ID of the property at the Catastro — the key to look up area, year and exact location.</p></div>
+            <div class="ins-card"><div class="term">IDUFIR / CRU</div>
+              <p>The unique ID of the registered property (finca) at the Land Registry.</p></div>
+            <div class="ins-card"><div class="term">Registry data <span class="es">Datos registrales</span></div>
+              <p>Land Registry coordinates of the property: finca number, tomo, libro, folio.</p></div>
+            <div class="ins-card"><div class="term">Charges <span class="es">Cargas</span></div>
+              <p>Liens and encumbrances on the property (mortgages, embargoes). Some may survive the sale — read the charges certificate carefully.</p>
+              <span class="tag warn">Check carefully</span></div>
+          </div>
+        </div>
+
+        <div class="ins-group">
+          <h3>Documents</h3>
+          <div class="ins-items">
+            <div class="ins-card"><div class="term">Edict <span class="es">Edicto</span></div>
+              <p>The official auction notice with the legal terms and conditions.</p></div>
+            <div class="ins-card"><div class="term">Charges certificate <span class="es">Certificación de cargas</span></div>
+              <p>Land Registry certificate listing the property's liens and registered rights.</p></div>
+            <div class="ins-card"><div class="term">Appraisal report <span class="es">Valoración · Art. 666 LEC</span></div>
+              <p>The valuation report. The crawler also reads its stated surface to cross-check the cadastral area.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const DATA = /*__DATA__*/[];
+const SCOPE = /*__SCOPE__*/{};
+const fmt=new Intl.NumberFormat('en-GB',{maximumFractionDigits:0});
+const eur=v=>(v==null||isNaN(v))?'—':fmt.format(v)+' €';
+const today=new Date();today.setHours(0,0,0,0);
+const daysLeft=iso=>{if(!iso)return null;const d=new Date(iso);if(isNaN(d))return null;return Math.ceil((d-today)/86400000);};
+const discount=r=>(r.tasacion&&r.tasacion>0&&r.valor_subasta!=null)?1-r.valor_subasta/r.tasacion:null;
+const tipoShort=t=>!t?'—':/notar/i.test(t)?'Notarial':/administ/i.test(t)?'Administrativa':/judicial/i.test(t)?'Judicial':t;
+const mapsUrl=r=>'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(
+  [r.direccion,r.codigo_postal,r.municipio,r.provincia,'España'].filter(Boolean).join(', '));
+DATA.forEach(r=>{r._days=daysLeft(r.fecha_fin);r._disc=discount(r);});
+
+const state={q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,pos:null,
+  openOnly:false,sort:'days',dir:1,openRow:null,view:'tabla'};
+
+const uniq=k=>[...new Set(DATA.map(r=>r[k]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
+const fill=(el,vals)=>vals.forEach(v=>{const o=document.createElement('option');o.value=o.textContent=v;el.appendChild(o);});
+fill(document.getElementById('fProv'),uniq('provincia'));
+fill(document.getElementById('fTipo'),uniq('tipo_subasta'));
+fill(document.getElementById('fSubtipo'),uniq('subtipo'));
+uniq('situacion_posesoria').forEach(v=>{const c=document.createElement('span');c.className='chip';
+  c.setAttribute('role','button');c.tabIndex=0;c.dataset.v=v;c.setAttribute('aria-pressed','false');
+  c.textContent=v.length>22?v.slice(0,21)+'…':v;c.title=v;document.getElementById('fPos').appendChild(c);});
+
+function visible(){
+  const q=state.q.toLowerCase();
+  return DATA.filter(r=>{
+    if(q){const hay=[r.municipio,r.provincia,r.descripcion,r.referencia_catastral,r.sub_id,r.direccion].filter(Boolean).join(' ').toLowerCase();if(!hay.includes(q))return false;}
+    if(state.prov.length&&!state.prov.includes(r.provincia))return false;
+    if(state.tipo&&r.tipo_subasta!==state.tipo)return false;
+    if(state.subtipo&&r.subtipo!==state.subtipo)return false;
+    if(state.vMin!=null&&(r.valor_subasta==null||r.valor_subasta<state.vMin))return false;
+    if(state.vMax!=null&&(r.valor_subasta==null||r.valor_subasta>state.vMax))return false;
+    if(state.dMax!=null&&(r.importe_deposito==null||r.importe_deposito>state.dMax))return false;
+    if(state.pm2Max!=null&&(r.precio_m2==null||r.precio_m2>state.pm2Max))return false;
+    if(state.upMin!=null&&(r.upside_pct==null||r.upside_pct<state.upMin))return false;
+    if(state.hab&&(r.vivienda_habitual||'')!==state.hab)return false;
+    if(state.pos&&(r.situacion_posesoria||'')!==state.pos)return false;
+    if(state.openOnly&&!(r._days!=null&&r._days>=0))return false;
+    return true;
+  });
+}
+const sk={place:r=>(r.provincia||'')+(r.municipio||''),tipo:r=>tipoShort(r.tipo_subasta),
+  valor:r=>r.valor_subasta??Infinity,disc:r=>r._disc==null?-1:r._disc,
+  dep:r=>r.importe_deposito??Infinity,pm2:r=>r.precio_m2??Infinity,sup:r=>r.superficie_m2??Infinity,mkt:r=>r.valor_mercado_est??-1,ups:r=>r.upside_pct??-9999,anio:r=>r.anio_construccion||'',days:r=>r._days==null?9e9:r._days};
+function sorted(rows){const k=sk[state.sort]||sk.days;return rows.sort((a,b)=>{const x=k(a),y=k(b);
+  return (typeof x==='string'?x.localeCompare(y,'es'):x-y)*state.dir;});}
+
+const occ=p=>p&&p!=='No consta'&&!/^no\b/i.test(p)&&!/libre/i.test(p);
+function detailRow(r){
+  const row=(k,v)=>v?`<dl><dt>${k}</dt><dd>${v}</dd></dl>`:'';
+  const docs=(r.documentos||[]).map(d=>`<a href="${d.url}" target="_blank" rel="noopener">📄 ${d.nombre||'document'}</a>`).join('');
+  return `<tr class="detail"><td colspan="16"><div class="detailgrid" onclick="event.stopPropagation()">
+    ${row('Description',r.descripcion)}
+    ${row('Address',r.direccion)}
+    ${row('Postcode · Town',[r.codigo_postal,r.municipio].filter(Boolean).join(' · '))}
+    ${row('Cadastral ref',r.referencia_catastral?`<span class="mono">${r.referencia_catastral}</span>`:'')}
+    ${row('IDUFIR',r.idufir?`<span class="mono">${r.idufir}</span>`:'')}
+    ${row('Primary residence',r.vivienda_habitual)}
+    ${row('Occupancy',r.situacion_posesoria)}
+    ${row('Viewable',r.visitable)}
+    ${row('Area',r.superficie_m2!=null?fmt.format(r.superficie_m2)+' m²':'')}
+    ${row('Year built',r.anio_construccion)}
+    ${row('Use',r.uso_catastral)}
+    ${row('€/m² (on value)',r.precio_m2!=null?fmt.format(r.precio_m2)+' €/m²':'')}
+    ${row('Area (appraisal PDF)',r.superficie_valoracion!=null?fmt.format(r.superficie_valoracion)+' m²':'')}
+    ${row('Market est. (Idealista)',r.valor_mercado_est!=null?fmt.format(r.valor_mercado_est)+' €':'')}
+    ${row('Market €/m²',r.mercado_eur_m2!=null?fmt.format(r.mercado_eur_m2)+' €/m² ('+(r.comps_n||0)+' comps)':'')}
+    ${row('Upside vs value',r.upside_pct!=null?(r.upside_pct>0?'+':'')+r.upside_pct+' %':'')}
+    ${row('Min bid',r.puja_minima!=null?eur(r.puja_minima):'')}
+    ${row('Registry data',r.datos_registrales)}
+    ${row('Charges',r.cargas)}
+    <div class="full"><div class="docs">
+      <a class="maps-inline" href="${mapsUrl(r)}" target="_blank" rel="noopener">📍 Open in Google Maps</a>
+      ${docs}</div></div>
+    ${r.detail_url?`<div class="full open-boe"><a href="${r.detail_url}" target="_blank" rel="noopener">Open auction on BOE portal ↗</a></div>`:''}
+  </div></td></tr>`;
+}
+function ups(r){
+  if(r.upside_pct==null)return '—';
+  const cls=r.upside_pct>0?'up-pos':r.upside_pct<0?'up-neg':'';
+  return `<span class="${cls}">${r.upside_pct>0?'+':''}${r.upside_pct}%</span>`;
+}
+function m2cell(r){
+  const c=r.superficie_m2, t=r.superficie_valoracion;
+  if(c==null&&t==null)return '—';
+  const diff=(c&&t)?Math.abs(c-t)/c>0.05:false;
+  const cat=c!=null?fmt.format(c):'—';
+  const tas=t!=null?`<span class="${diff?'m2-diff':''}">/ ${fmt.format(t)}</span>`:'';
+  return `${cat} ${tas}`;
+}
+function bodyHtml(rows){
+  if(!rows.length)return `<tr><td colspan="16"><div class="empty"><b>No results</b>Adjust or reset the filters.</div></td></tr>`;
+  return rows.map(r=>{
+    const d=r._days, days=d==null?`<span class="days closed">—</span>`:d<0?`<span class="days closed">closed</span>`:`<span class="days ${d<=7?'soon':''}">${d} d</span>`;
+    const disc=r._disc!=null?`<td class="disc">−${Math.round(r._disc*100)}%</td>`:`<td class="disc none">—</td>`;
+    const hab=r.vivienda_habitual==='Sí'?`<span class="yn si">Sí</span>`:r.vivienda_habitual==='No'?`<span class="yn no">No</span>`:`<span class="yn">—</span>`;
+    const pos=r.situacion_posesoria?`<span class="pos ${occ(r.situacion_posesoria)?'occ':''}" title="${r.situacion_posesoria}">${r.situacion_posesoria.length>20?r.situacion_posesoria.slice(0,19)+'…':r.situacion_posesoria}</span>`:'—';
+    const open=state.openRow===r.sub_id;
+    return `<tr class="data" tabindex="0" data-id="${r.sub_id}">
+      <td class="num">${days}</td>
+      <td><span class="muni">${r.municipio||'—'}</span><br><span class="prov">${r.provincia||''}</span></td>
+      <td><div class="obj" title="${(r.descripcion||'').replace(/"/g,'')}">${r.subtipo?`<b>${r.subtipo}</b> · `:''}${r.descripcion||r.direccion||''}</div></td>
+      <td><span class="tipo-tag">${tipoShort(r.tipo_subasta)}</span></td>
+      <td class="num">${eur(r.valor_subasta)}</td>
+      ${disc}
+      <td class="num">${r.precio_m2!=null?fmt.format(r.precio_m2)+' €':'—'}</td>
+      <td class="num">${r.valor_mercado_est!=null?fmt.format(r.valor_mercado_est)+' €':'—'}</td>
+      <td class="num">${ups(r)}</td>
+      <td class="num">${m2cell(r)}</td>
+      <td class="num">${eur(r.importe_deposito)}</td>
+      <td class="num">${r.anio_construccion||'—'}</td>
+      <td><span class="uso" title="${r.uso_catastral||''}">${(r.uso_catastral||'—').slice(0,14)}</span></td>
+      <td>${hab}</td><td>${pos}</td>
+      <td><span class="refcat">${r.referencia_catastral||'—'}</span></td>
+      <td><div class="acts">
+        <a class="iconbtn" href="${mapsUrl(r)}" target="_blank" rel="noopener" title="Google Maps" onclick="event.stopPropagation()">📍</a>
+        ${r.detail_url?`<a class="iconbtn" href="${r.detail_url}" target="_blank" rel="noopener" title="BOE-Portal" onclick="event.stopPropagation()">↗</a>`:''}
+      </div></td>
+    </tr>${open?detailRow(r):''}`;
+  }).join('');
+}
+/* Map */
+let map=null,layer=null,leafletState='unknown';
+function showMapFail(){
+  document.getElementById('map').innerHTML=
+    `<div class="mapfail"><div><b>Map unavailable</b>
+      Leaflet/OpenStreetMap could not be loaded.
+      <div class="hint">This happens in restricted preview environments without external scripts.
+      Open the file directly in your browser — the map loads normally there.
+      The 📍 Google Maps links work everywhere.</div></div></div>`;
+  document.getElementById('mapnote').textContent='';
+}
+function loadLeaflet(cb){
+  if(window.L){cb(true);return;}
+  if(leafletState==='loading'){setTimeout(()=>cb(!!window.L),600);return;}
+  leafletState='loading';
+  const s=document.createElement('script');
+  s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  s.onload=()=>{leafletState='ok';cb(true);};
+  s.onerror=()=>{leafletState='fail';cb(false);};
+  document.head.appendChild(s);
+  setTimeout(()=>{if(!window.L){leafletState='fail';cb(false);}},5000);
+}
+function ensureMap(){
+  if(map)return true;
+  if(typeof L==='undefined')return false;
+  map=L.map('map',{zoomControl:true}).setView([40.0,-3.7],6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+  return true;
+}
+function renderMap(rows){
+  if(!ensureMap()){ showMapFail(); return; }
+  if(layer)layer.remove();
+  layer=L.layerGroup().addTo(map);
+  const pts=[];
+  rows.forEach(r=>{
+    if(r.latitud==null||r.longitud==null)return;
+    const m=L.marker([r.latitud,r.longitud]).addTo(layer);
+    const disc=r._disc!=null?` · −${Math.round(r._disc*100)}%`:'';
+    m.bindPopup(`<div class="pp-muni">${r.municipio||''}</div>
+      <div class="pp-row">${r.subtipo||''} ${r.descripcion?'· '+r.descripcion:''}</div>
+      <div class="pp-row"><b>${eur(r.valor_subasta)}</b>${disc}${r.precio_m2!=null?' · '+fmt.format(r.precio_m2)+' €/m²':''}</div>
+      <div class="pp-row">${r._days!=null&&r._days>=0?r._days+' days':'closed'}</div>
+      <div class="pp-links"><a href="${mapsUrl(r)}" target="_blank" rel="noopener">Maps</a>
+        ${r.detail_url?`<a href="${r.detail_url}" target="_blank" rel="noopener">BOE ↗</a>`:''}</div>`);
+    pts.push([r.latitud,r.longitud]);
+  });
+  const without=rows.length-pts.length;
+  document.getElementById('mapnote').textContent=
+    `${pts.length} located${without?` · ${without} without coordinates`:''}`;
+  if(pts.length)map.fitBounds(pts,{padding:[40,40],maxZoom:14});
+}
+
+function render(){
+  const rows=sorted(visible());
+  document.getElementById('tbody').innerHTML=bodyHtml(rows);
+  if(state.view==='mapa'){
+    loadLeaflet(ok=>{
+      if(!ok){ showMapFail(); return; }
+      setTimeout(()=>{map&&map.invalidateSize();renderMap(rows);},0);
+    });
+  }
+}
+
+/* events */
+const on=(id,ev,fn)=>document.getElementById(id).addEventListener(ev,fn);
+on('q','input',e=>{state.q=e.target.value;render();});
+on('fProv','change',e=>{state.prov=[...e.target.selectedOptions].map(o=>o.value);render();});
+on('fTipo','change',e=>{state.tipo=e.target.value;render();});
+on('fSubtipo','change',e=>{state.subtipo=e.target.value;render();});
+on('vMin','input',e=>{state.vMin=e.target.value===''?null:+e.target.value;render();});
+on('vMax','input',e=>{state.vMax=e.target.value===''?null:+e.target.value;render();});
+on('dMax','input',e=>{state.dMax=e.target.value===''?null:+e.target.value;render();});
+on('pm2Max','input',e=>{state.pm2Max=e.target.value===''?null:+e.target.value;render();});
+on('upMin','input',e=>{state.upMin=e.target.value===''?null:+e.target.value;render();});
+function chipGroup(id,key){const w=document.getElementById(id);
+  const tog=c=>{const was=c.getAttribute('aria-pressed')==='true';
+    w.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed','false'));
+    c.setAttribute('aria-pressed',was?'false':'true');
+    if(key==='open')state.openOnly=!was;else state[key]=was?null:c.dataset.v;render();};
+  w.addEventListener('click',e=>{const c=e.target.closest('.chip');if(c)tog(c);});
+  w.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){const c=e.target.closest('.chip');if(c){e.preventDefault();tog(c);}}});}
+chipGroup('fHab','hab');chipGroup('fPos','pos');chipGroup('fOpen','open');
+
+document.getElementById('thead').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-sort]');if(!b)return;const s=b.dataset.sort;
+  if(state.sort===s)state.dir*=-1;else{state.sort=s;state.dir=1;}
+  document.querySelectorAll('#thead th').forEach(th=>{th.dataset.active='0';const a=th.querySelector('.arr');if(a)a.textContent='↕';});
+  const th=b.closest('th');th.dataset.active='1';const a=b.querySelector('.arr');if(a)a.textContent=state.dir>0?'↑':'↓';render();});
+document.getElementById('tbody').addEventListener('click',e=>{
+  const tr=e.target.closest('tr.data');if(!tr)return;
+  state.openRow=state.openRow===tr.dataset.id?null:tr.dataset.id;render();});
+document.getElementById('tbody').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){const tr=e.target.closest('tr.data');if(tr){state.openRow=state.openRow===tr.dataset.id?null:tr.dataset.id;render();}}});
+
+function setView(v){state.view=v;
+  document.getElementById('tabTabla').setAttribute('aria-selected',v==='tabla');
+  document.getElementById('tabMapa').setAttribute('aria-selected',v==='mapa');
+  document.getElementById('tabScope').setAttribute('aria-selected',v==='scope');
+  document.getElementById('tabInsights').setAttribute('aria-selected',v==='insights');
+  document.body.classList.toggle('map',v==='mapa');
+  document.body.classList.toggle('scope',v==='scope');
+  document.body.classList.toggle('insights',v==='insights');render();}
+document.getElementById('tabTabla').addEventListener('click',()=>setView('tabla'));
+document.getElementById('tabMapa').addEventListener('click',()=>setView('mapa'));
+document.getElementById('tabScope').addEventListener('click',()=>setView('scope'));
+document.getElementById('tabInsights').addEventListener('click',()=>setView('insights'));
+
+function setRail(collapsed){
+  document.body.classList.toggle('rail-collapsed',collapsed);
+  if(state.view==='mapa'&&map){setTimeout(()=>map.invalidateSize(),0);}
+}
+document.getElementById('railCollapse').addEventListener('click',()=>setRail(true));
+document.getElementById('railReopen').addEventListener('click',()=>setRail(false));
+
+/* ── Scope-Tab ─────────────────────────────────────────────── */
+const PROVINCIAS=["A Coruña","Álava","Albacete","Alicante","Almería","Asturias","Ávila",
+"Badajoz","Barcelona","Bizkaia","Burgos","Cáceres","Cádiz","Cantabria","Castellón",
+"Ciudad Real","Córdoba","Cuenca","Gipuzkoa","Girona","Granada","Guadalajara","Huelva",
+"Huesca","Illes Balears","Jaén","La Rioja","Las Palmas","León","Lleida","Lugo","Madrid",
+"Málaga","Murcia","Navarra","Ourense","Palencia","Pontevedra","Salamanca",
+"Santa Cruz de Tenerife","Segovia","Sevilla","Soria","Tarragona","Teruel","Toledo",
+"Valencia","Valladolid","Zamora","Zaragoza"];
+const scopeSel=new Set((SCOPE.focus_provincias)||[]);
+const scopeTipos=new Set((SCOPE.focus_tipos)||[]);
+const scopeSubtipos=new Set((SCOPE.focus_subtipos)||[]);
+
+const provGrid=document.getElementById('provGrid');
+PROVINCIAS.forEach(p=>{const c=document.createElement('span');c.className='chip';
+  c.setAttribute('role','button');c.tabIndex=0;c.dataset.v=p;
+  c.setAttribute('aria-pressed',scopeSel.has(p));c.textContent=p;provGrid.appendChild(c);});
+function toggleProv(c){const p=c.dataset.v,on=!scopeSel.has(p);
+  on?scopeSel.add(p):scopeSel.delete(p);c.setAttribute('aria-pressed',on);buildScope();}
+provGrid.addEventListener('click',e=>{const c=e.target.closest('.chip');if(c)toggleProv(c);});
+provGrid.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){
+  const c=e.target.closest('.chip');if(c){e.preventDefault();toggleProv(c);}}});
+document.getElementById('provSearch').addEventListener('input',e=>{
+  const q=e.target.value.toLowerCase();
+  provGrid.querySelectorAll('.chip').forEach(c=>c.classList.toggle('hide',!c.dataset.v.toLowerCase().includes(q)));});
+document.getElementById('provAll').addEventListener('click',()=>{
+  provGrid.querySelectorAll('.chip:not(.hide)').forEach(c=>{scopeSel.add(c.dataset.v);c.setAttribute('aria-pressed','true');});buildScope();});
+document.getElementById('provNone').addEventListener('click',()=>{
+  scopeSel.clear();provGrid.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed','false'));buildScope();});
+
+const tiposWrap=document.getElementById('scopeTipos');
+tiposWrap.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed',scopeTipos.has(c.dataset.v)));
+function toggleTipo(c){const v=c.dataset.v,on=!scopeTipos.has(v);
+  on?scopeTipos.add(v):scopeTipos.delete(v);c.setAttribute('aria-pressed',on);buildScope();}
+tiposWrap.addEventListener('click',e=>{const c=e.target.closest('.chip');if(c)toggleTipo(c);});
+tiposWrap.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){
+  const c=e.target.closest('.chip');if(c){e.preventDefault();toggleTipo(c);}}});
+
+const subWrap=document.getElementById('scopeSubtipos');
+subWrap.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed',scopeSubtipos.has(c.dataset.v)));
+function toggleSub(c){const v=c.dataset.v,on=!scopeSubtipos.has(v);
+  on?scopeSubtipos.add(v):scopeSubtipos.delete(v);c.setAttribute('aria-pressed',on);buildScope();}
+subWrap.addEventListener('click',e=>{const c=e.target.closest('.chip');if(c)toggleSub(c);});
+subWrap.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){
+  const c=e.target.closest('.chip');if(c){e.preventDefault();toggleSub(c);}}});
+
+const SCOPE_URLS=(SCOPE.search_urls)||[];  // Portal-Such-URLs nur via scope.json (kein UI mehr)
+
+function currentScope(){
+  return {
+    focus_provincias:[...scopeSel],
+    focus_tipos:[...scopeTipos],
+    focus_subtipos:[...scopeSubtipos],
+    search_urls:SCOPE_URLS
+  };
+}
+function buildScope(){
+  const sc=currentScope();
+  const cli = sc.search_urls.length
+    ? sc.search_urls.map(u=>`python main.py search --url "${u}"`).join('\n')+'\npython main.py enrich'
+    : 'python main.py discover --from 2026-06-01 --to 2026-06-30\npython main.py enrich';
+  document.getElementById('scopeCli').textContent =
+    `# place scope.json in the project folder, then:\n${cli}\npython main.py catastro\npython main.py export --html subastas.html`;
+}
+
+document.getElementById('dlScope').addEventListener('click',()=>{
+  const blob=new Blob([JSON.stringify(currentScope(),null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='scope.json';
+  document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(a.href);});
+document.getElementById('copyScope').addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText(JSON.stringify(currentScope(),null,2));
+    const s=document.getElementById('scopeSaved');s.hidden=false;setTimeout(()=>s.hidden=true,1800);}
+  catch(e){}});
+buildScope();
+
+// Live-Server-Modus — nur aktiv, wenn die Seite vom Server ausgeliefert wird.
+// Wird die Datei lokal geöffnet, schlägt fetch fehl und es bleibt beim Download-Modus.
+(async function serverMode(){
+  let st;
+  try{const r=await fetch('api/status',{headers:{Accept:'application/json'}});if(!r.ok)return;st=await r.json();}
+  catch(e){return;}
+  document.body.classList.add('server-mode');
+  document.getElementById('scopeServer').hidden=false;
+  const statusEl=document.getElementById('srvStatus');
+  const crawlBtn=document.getElementById('srvCrawl'), saveBtn=document.getElementById('srvSave');
+  function paint(s){
+    const busy=s.running;
+    statusEl.className='srv-status'+(busy?' busy':'');
+    const provs=(s.last_scope&&s.last_scope.focus_provincias)||[];
+    const scopeTxt=provs.length?provs.join(', '):'all provinces';
+    const last=s.last_run?new Date(s.last_run).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):null;
+    const ago=s.days_since==null?'':(s.days_since<1?'today':s.days_since<2?'1 day ago':Math.round(s.days_since)+' days ago');
+    const stale=s.days_since!=null&&s.days_since>=7;
+    let html=`<div><span class="dot"></span>${busy?'Crawling…':'Idle'} · ${s.subastas||0} auctions / ${s.rows||0} rows</div>`;
+    html+= last
+      ? `<div class="srv-sub">Last read: ${last}${ago?` (${ago})`:''} · ${scopeTxt}</div>`
+      : `<div class="srv-sub">Not crawled yet — set your provinces and hit Crawl now.</div>`;
+    if(s.scheduler_hours>0)html+=`<div class="srv-sub">Auto-refresh every ${s.scheduler_hours} h</div>`;
+    if(stale&&!busy)html+=`<div class="srv-stale">It's been ${Math.round(s.days_since)} days — time for a refresh.</div>`;
+    if(s.last_error)html+=`<div class="srv-stale">Error: ${s.last_error}</div>`;
+    statusEl.innerHTML=html;
+    crawlBtn.disabled=busy;
+  }
+  paint(st);
+  let poll=null;
+  async function refresh(){try{const r=await fetch('api/status');if(r.ok){const s=await r.json();paint(s);return s;}}catch(e){}return null;}
+  function startPoll(){if(poll)return;poll=setInterval(async()=>{const s=await refresh();
+    if(s&&!s.running){clearInterval(poll);poll=null;setTimeout(()=>location.reload(),700);}},3000);}
+  crawlBtn.addEventListener('click',async()=>{
+    crawlBtn.disabled=true;
+    try{const r=await fetch('api/crawl',{method:'POST'});if(r.status===202||r.status===409){await refresh();startPoll();}else{crawlBtn.disabled=false;}}
+    catch(e){crawlBtn.disabled=false;}});
+  saveBtn.addEventListener('click',async()=>{
+    try{const r=await fetch('api/scope',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentScope())});
+      if(r.ok){const s=document.getElementById('srvSaved');s.hidden=false;setTimeout(()=>s.hidden=true,1800);}}
+    catch(e){}});
+  if(st.running)startPoll();
+})();
+
+render();
+
+document.getElementById('reset').addEventListener('click',()=>{
+  Object.assign(state,{q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,pos:null,openOnly:false});
+  document.getElementById('q').value='';
+  ['fTipo','fSubtipo','vMin','vMax','dMax','pm2Max','upMin'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fProv').selectedIndex=-1;
+  document.querySelector('aside.rail').querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed','false'));render();});
+
+render();
+</script>
+</body>
+</html>

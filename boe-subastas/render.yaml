@@ -1,0 +1,26 @@
+# Render.com Blueprint — 1-Klick-Deploy eines privaten Live-Servers.
+services:
+  - type: web
+    name: auction-sonar
+    runtime: docker
+    plan: starter            # kleinster Always-on-Plan (Free-Plan schläft ein)
+    healthCheckPath: /healthz
+    envVars:
+      - key: AUTH_USER
+        sync: false          # im Render-Dashboard setzen
+      - key: AUTH_PASS
+        sync: false
+      - key: CRAWL_INTERVAL_HOURS   # 0 = manuell (Standard); 168 = wöchentlich
+        value: "0"
+      - key: CRAWL_DAYS_BACK
+        value: "30"
+      - key: CRAWL_ON_START
+        value: "0"
+      - key: IDEALISTA_API_KEY
+        sync: false
+      - key: IDEALISTA_SECRET
+        sync: false
+    disk:
+      name: data
+      mountPath: /app/data
+      sizeGB: 1
