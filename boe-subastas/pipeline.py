@@ -15,10 +15,25 @@ from store import Store, append_raw
 log = logging.getLogger("pipeline")
 
 
-def discover(start: dt.date, end: dt.date, store: Store) -> int:
-    """Stufe 1: offizielle API nach Subasta-Anuncios absuchen, SUB-IDs ableiten."""
+def discover(start: dt.date, end: dt.date, store: Store,
+             focus_codes: set[str] | None = None) -> int:
+    """Stufe 1: offizielle API nach Subasta-Anuncios absuchen, SUB-IDs ableiten.
+
+    Wenn focus_codes gesetzt ist, werden Einträge VOR dem Dokument-/Portal-Abruf
+    anhand des Gerichtsorts (Titel → Provinz) verworfen, sofern sie sicher in
+    einer anderen Provinz liegen. Unbekannte/mehrdeutige Orte bleiben drin, damit
+    nie eine echte Versteigerung der Zielprovinz verloren geht (Exaktfilter folgt
+    beim Enrich über die echte Portal-Provinz)."""
     api = BoeApi()
     records = api.find_range(start, end)
+    if focus_codes:
+        kept = []
+        for r in records:
+            code = config.town_province_code(r.get("titulo") or "")
+            if code is None or code in focus_codes:
+                kept.append(r)
+        log.info("Provinz-Vorfilter: %s von %s Einträgen behalten", len(kept), len(records))
+        records = kept
     # SUB-ID nachladen, wo sie nicht im Titel stand (aus dem Anuncio-XML).
     for r in records:
         if not r.get("sub_id") and r.get("url_xml"):
@@ -189,21 +204,24 @@ def crawl_now(days_back: int = 30, limit: int | None = None, *, force: bool = Fa
     store = Store()
     try:
         if config.FOCUS_PROVINCIAS:
-            res = discover_via_province_search(
-                store, list(config.FOCUS_PROVINCIAS), force=force)
-            summary["mode"] = "province"
-            summary["discovered"] = res["sub_ids"]
-            summary["province_detail"] = res["per_province"]
-            summary["skipped_fresh"] = res["skipped_fresh"]
-            # Sicherheitsnetz: Wenn die Portal-Suche nichts liefert UND keine
-            # Provinz nur wegen des Schonfensters übersprungen wurde, auf die
-            # API-Discovery zurückfallen, damit ein Lauf nie leer ausgeht.
-            if res["sub_ids"] == 0 and not res["skipped_fresh"]:
-                end = dt.date.today()
-                start = end - dt.timedelta(days=days_back)
-                summary["discovered"] = discover(start, end, store)
-                summary["mode"] = "province→api-fallback"
-                summary["window"] = [start.isoformat(), end.isoformat()]
+            # Provinz-gezielt über das offizielle Sumario + Ort→Provinz-Vorfilter.
+            focus_codes = config.focus_province_codes()
+            state = _load_crawl_state()
+            end = dt.date.today()
+            start = end - dt.timedelta(days=days_back)
+            if not force:                      # inkrementell: nur neue Tage scannen
+                ls = state.get("last_scanned_date")
+                if ls:
+                    try:
+                        start = max(start, dt.date.fromisoformat(ls) - dt.timedelta(days=2))
+                    except Exception:  # noqa: BLE001
+                        pass
+            summary["discovered"] = discover(start, end, store, focus_codes=focus_codes)
+            summary["mode"] = "api-province"
+            summary["window"] = [start.isoformat(), end.isoformat()]
+            summary["focus_codes"] = sorted(focus_codes)
+            state["last_scanned_date"] = end.isoformat()
+            _save_crawl_state(state)
         elif config.SEARCH_URLS:
             summary["discovered"] = discover_via_search(list(config.SEARCH_URLS), store)
             summary["mode"] = "search"
