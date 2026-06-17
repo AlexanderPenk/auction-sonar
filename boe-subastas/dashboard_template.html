@@ -184,6 +184,9 @@ body.scope #scopeview{display:block}
 .btn:focus-visible{outline:2px solid var(--bar);outline-offset:2px}
 .scope-saved{color:var(--good);font-size:12px;font-weight:600}
 .srv-force{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none}
+.btn.danger{border-color:#e2b4b4;color:#9b2c2c}
+.btn.danger:hover{background:#fbeaea}
+.srv-scope{font-size:12px;color:var(--ink);background:var(--surface-2,#f4f4f2);border:1px solid var(--line);border-radius:6px;padding:5px 9px;margin:6px 0}
 .scope-server{background:linear-gradient(0deg,var(--surface),var(--surface)) padding-box,var(--surface)}
 .srv-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
 .srv-title{font-weight:600;font-size:14px}
@@ -329,6 +332,7 @@ body.scope .search,body.insights .search{visibility:hidden}
               <button class="btn primary" id="srvCrawl">Crawl now</button>
               <label class="srv-force" title="Re-search every province even if crawled recently"><input type="checkbox" id="srvForce"> Force refresh</label>
               <span class="scope-saved" id="srvSaved" hidden>saved ✓</span>
+              <button class="btn danger" id="srvReset" title="Delete all collected data and start clean">Reset data</button>
             </div>
           </div>
         </section>
@@ -821,6 +825,7 @@ function buildScope(){
     : 'python main.py discover --from 2026-06-01 --to 2026-06-30\npython main.py enrich';
   document.getElementById('scopeCli').textContent =
     `# place scope.json in the project folder, then:\n${cli}\npython main.py catastro\npython main.py export --html subastas.html`;
+  if(window.__onScopeChange)window.__onScopeChange();   // Live-Karte aktualisieren
 }
 
 document.getElementById('dlScope').addEventListener('click',()=>{
@@ -869,7 +874,15 @@ buildScope();
     }
     return html;
   }
+  function scopeSummary(sc){
+    const p=(sc.focus_provincias&&sc.focus_provincias.length)?sc.focus_provincias.join(', '):'all provinces';
+    const t=(sc.focus_tipos&&sc.focus_tipos.length)?sc.focus_tipos.join(' / '):'all auction types';
+    const pt=(sc.focus_subtipos&&sc.focus_subtipos.length)?sc.focus_subtipos.join(' / '):'all property types';
+    return `${p} · ${t} · ${pt}`;
+  }
+  let lastStatus=st;
   function paint(s){
+    lastStatus=s;
     const busy=s.running;
     statusEl.className='srv-status'+(busy?' busy':'');
     const provs=(s.last_scope&&s.last_scope.focus_provincias)||[];
@@ -879,6 +892,7 @@ buildScope();
     const stale=s.days_since!=null&&s.days_since>=7;
     const head=busy?'Crawling…':(autoRun?'Continuing…':'Idle');
     let html=`<div><span class="dot"></span>${head} · ${s.subastas||0} auctions / ${s.rows||0} rows</div>`;
+    html+=`<div class="srv-scope"><b>Search scope:</b> ${scopeSummary(currentScope())}</div>`;
     if(busy||autoRun)html+=bars(s);
     html+= last
       ? `<div class="srv-sub">Last read: ${last}${ago?` (${ago})`:''} · ${scopeTxt}</div>`
@@ -924,6 +938,17 @@ buildScope();
     try{const r=await fetch('api/scope',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentScope())});
       if(r.ok){const s=document.getElementById('srvSaved');s.hidden=false;setTimeout(()=>s.hidden=true,1800);}}
     catch(e){}});
+  window.__onScopeChange=()=>{try{paint(lastStatus);}catch(e){}};
+  const resetBtn=document.getElementById('srvReset');
+  if(resetBtn)resetBtn.addEventListener('click',async()=>{
+    if(!confirm('Delete ALL collected auctions and start clean? This cannot be undone.'))return;
+    resetBtn.disabled=true;autoRun=false;if(poll){clearInterval(poll);poll=null;}
+    try{const r=await fetch('api/reset',{method:'POST'});
+      if(r.ok){DATA=[];render();await refresh();}
+      else{const j=await r.json().catch(()=>({}));alert('Reset failed: '+(j.error||r.status));}
+    }catch(e){alert('Reset failed.');}
+    resetBtn.disabled=false;
+  });
   if(st.running){autoRun=true;startPoll();}
 })();
 

@@ -123,6 +123,15 @@ class Store:
             "WHERE sub_id IS NOT NULL").fetchone()
         return int(row["n"]) if row else 0
 
+    def reset(self) -> None:
+        """Alle gesammelten Daten löschen (Tabelle für Tabelle), Struktur bleibt."""
+        for t in ("documentos", "bienes", "lotes", "subastas", "anuncios"):
+            try:
+                self.conn.execute(f"DELETE FROM {t}")
+            except Exception:  # noqa: BLE001 - Tabelle evtl. (noch) nicht vorhanden
+                pass
+        self.conn.commit()
+
     def pending_sub_ids(self, limit: int | None = None) -> list[str]:
         sql = ("SELECT DISTINCT sub_id FROM anuncios "
                "WHERE sub_id IS NOT NULL AND enriched = 0")

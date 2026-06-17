@@ -235,6 +235,32 @@ def api_crawl(force: int = 0, _: None = Depends(auth)) -> JSONResponse:
     return JSONResponse({"started": started, "force": bool(force)}, status_code=code)
 
 
+@app.post("/api/reset")
+def api_reset(_: None = Depends(auth)) -> JSONResponse:
+    """Alle gesammelten Daten löschen (für einen sauberen Neustart mit einem Scope)."""
+    with _state_lock:
+        if _state["running"]:
+            return JSONResponse({"error": "crawl läuft – erst stoppen"}, status_code=409)
+    try:
+        from store import Store
+        s = Store()
+        s.reset()
+        s.close()
+        for p in (config.CRAWL_STATE_PATH, _LAST_RUN_PATH):
+            try:
+                p.unlink()
+            except Exception:  # noqa: BLE001
+                pass
+        pipeline.PROGRESS.update(phase="idle", done=0, total=0, note="")
+        with _state_lock:
+            _state["last_run"] = None
+            _state["last_summary"] = None
+            _state["last_scope"] = None
+        return JSONResponse({"ok": True})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 @app.get("/api/debug")
 def api_debug(_: None = Depends(auth)) -> dict:
     """Tiefen-Probe des jüngsten Sumarios: Sektionen, wie Justiz-Einträge betitelt
