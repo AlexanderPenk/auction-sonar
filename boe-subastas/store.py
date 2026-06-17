@@ -97,6 +97,25 @@ class Store:
         self.conn.commit()
         return len(rows)
 
+    def known_anuncio_ids(self, ids: Iterable[str]) -> set[str]:
+        """Welche dieser BOE-Anuncio-IDs sind bereits gespeichert?"""
+        ids = [i for i in ids if i]
+        out: set[str] = set()
+        for i in range(0, len(ids), 500):          # SQLite-Parametergrenze beachten
+            chunk = ids[i:i + 500]
+            q = ",".join("?" * len(chunk))
+            rows = self.conn.execute(
+                f"SELECT boe_anuncio_id FROM anuncios WHERE boe_anuncio_id IN ({q})", chunk)
+            out.update(r["boe_anuncio_id"] for r in rows)
+        return out
+
+    def pending_count(self) -> int:
+        """Wie viele SUB-IDs sind noch nicht angereichert (für Fortschritt/Auto-Fortsetzung)."""
+        row = self.conn.execute(
+            "SELECT COUNT(DISTINCT sub_id) AS n FROM anuncios "
+            "WHERE sub_id IS NOT NULL AND enriched = 0").fetchone()
+        return int(row["n"]) if row else 0
+
     def pending_sub_ids(self, limit: int | None = None) -> list[str]:
         sql = ("SELECT DISTINCT sub_id FROM anuncios "
                "WHERE sub_id IS NOT NULL AND enriched = 0")

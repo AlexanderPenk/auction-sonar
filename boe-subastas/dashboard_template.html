@@ -191,6 +191,11 @@ body.scope #scopeview{display:block}
 .srv-status .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--good);margin-right:6px;vertical-align:middle}
 .srv-status.busy .dot{background:var(--amber);animation:pulse 1s infinite}
 .srv-sub{color:var(--muted)}
+.pbar{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:8px 0 4px}
+.pbar-fill{height:100%;background:var(--good);transition:width .4s ease}
+.pbar.indet{position:relative}
+.pbar.indet .pbar-fill{width:30%;position:absolute;animation:pslide 1.2s infinite ease-in-out}
+@keyframes pslide{0%{left:-30%}100%{left:100%}}
 .srv-stale{color:var(--amber);font-weight:600}
 @keyframes pulse{50%{opacity:.35}}
 .srv-actions{display:flex;gap:9px;align-items:center}
@@ -494,7 +499,7 @@ body.scope .search,body.insights .search{visibility:hidden}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const DATA = /*__DATA__*/[];
+let DATA = /*__DATA__*/[];
 const SCOPE = /*__SCOPE__*/{};
 const fmt=new Intl.NumberFormat('en-GB',{maximumFractionDigits:0});
 const eur=v=>(v==null||isNaN(v))?'—':fmt.format(v)+' €';
@@ -680,6 +685,21 @@ function render(){
   }
 }
 
+// Neue Optionen ergänzen, ohne bestehende Auswahl zu verlieren.
+function addOptions(el,vals){const have=new Set([...el.options].map(o=>o.value));
+  vals.forEach(v=>{if(!have.has(v)){const o=document.createElement('option');o.value=o.textContent=v;el.appendChild(o);}});}
+// Daten live vom Server nachladen und neu rendern (Tabelle/Karte wachsen mit).
+async function reloadData(){
+  try{const r=await fetch('api/data');if(!r.ok)return false;const rows=await r.json();
+    if(!Array.isArray(rows))return false;
+    DATA=rows;DATA.forEach(x=>{x._days=daysLeft(x.fecha_fin);x._disc=discount(x);});
+    addOptions(document.getElementById('fProv'),uniq('provincia'));
+    addOptions(document.getElementById('fTipo'),uniq('tipo_subasta'));
+    addOptions(document.getElementById('fSubtipo'),uniq('subtipo'));
+    render();return true;
+  }catch(e){return false;}
+}
+
 /* events */
 const on=(id,ev,fn)=>document.getElementById(id).addEventListener(ev,fn);
 on('q','input',e=>{state.q=e.target.value;render();});
@@ -815,6 +835,21 @@ buildScope();
   document.getElementById('scopeServer').hidden=false;
   const statusEl=document.getElementById('srvStatus');
   const crawlBtn=document.getElementById('srvCrawl'), saveBtn=document.getElementById('srvSave');
+  let autoRun=false, poll=null, chunkStartPending=null;
+  const PHASE={discover:'Finding auctions',enrich:'Fetching details',geocode:'Locating on map',
+               catastro:'Land registry',idealista:'Market values',done:'Done',idle:''};
+
+  function bar(p,pending){
+    if(!p||!p.phase||p.phase==='idle')return '';
+    const label=PHASE[p.phase]||p.phase;
+    if(p.total>0){const pct=Math.min(100,Math.round(100*p.done/p.total));
+      return `<div class="pbar"><div class="pbar-fill" style="width:${pct}%"></div></div>
+        <div class="srv-sub">${label}: ${p.done}/${p.total} (${pct}%)${pending?` · ${pending} remaining`:''}</div>`;}
+    if(p.phase!=='done')
+      return `<div class="pbar indet"><div class="pbar-fill"></div></div>
+        <div class="srv-sub">${label}…${pending?` · ${pending} remaining`:''}</div>`;
+    return '';
+  }
   function paint(s){
     const busy=s.running;
     statusEl.className='srv-status'+(busy?' busy':'');
@@ -823,34 +858,54 @@ buildScope();
     const last=s.last_run?new Date(s.last_run).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):null;
     const ago=s.days_since==null?'':(s.days_since<1?'today':s.days_since<2?'1 day ago':Math.round(s.days_since)+' days ago');
     const stale=s.days_since!=null&&s.days_since>=7;
-    let html=`<div><span class="dot"></span>${busy?'Crawling…':'Idle'} · ${s.subastas||0} auctions / ${s.rows||0} rows</div>`;
+    const head=busy?'Crawling…':(autoRun?'Continuing…':'Idle');
+    let html=`<div><span class="dot"></span>${head} · ${s.subastas||0} auctions / ${s.rows||0} rows</div>`;
+    if(busy||autoRun)html+=bar(s.progress,s.pending);
     html+= last
       ? `<div class="srv-sub">Last read: ${last}${ago?` (${ago})`:''} · ${scopeTxt}</div>`
       : `<div class="srv-sub">Not crawled yet — set your provinces and hit Crawl now.</div>`;
     if(s.scheduler_hours>0)html+=`<div class="srv-sub">Auto-refresh every ${s.scheduler_hours} h</div>`;
-    if(stale&&!busy)html+=`<div class="srv-stale">It's been ${Math.round(s.days_since)} days — time for a refresh.</div>`;
+    if(stale&&!busy&&!autoRun)html+=`<div class="srv-stale">It's been ${Math.round(s.days_since)} days — time for a refresh.</div>`;
     if(s.last_error)html+=`<div class="srv-stale">Error: ${s.last_error}</div>`;
+    if(autoRun)html+=`<div class="srv-sub"><a href="#" id="srvStop">Stop auto-continue</a></div>`;
     statusEl.innerHTML=html;
-    crawlBtn.disabled=busy;
+    crawlBtn.disabled=busy||autoRun;
+    const stop=document.getElementById('srvStop');
+    if(stop)stop.addEventListener('click',e=>{e.preventDefault();autoRun=false;paint(s);});
   }
   paint(st);
-  let poll=null;
-  async function refresh(){try{const r=await fetch('api/status');if(r.ok){const s=await r.json();paint(s);return s;}}catch(e){}return null;}
-  function startPoll(){if(poll)return;poll=setInterval(async()=>{const s=await refresh();
-    if(s&&!s.running){clearInterval(poll);poll=null;setTimeout(()=>location.reload(),700);}},3000);}
-  crawlBtn.addEventListener('click',async()=>{
-    crawlBtn.disabled=true;
-    // Scope vorab automatisch speichern, damit der Lauf garantiert den aktuell
-    // gewählten Suchraum nutzt (kein vergessenes "Save scope" mehr).
-    try{await fetch('api/scope',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentScope())});}catch(e){}
+
+  async function startCrawl(){
     const force=document.getElementById('srvForce')&&document.getElementById('srvForce').checked?'?force=1':'';
-    try{const r=await fetch('api/crawl'+force,{method:'POST'});if(r.status===202||r.status===409){await refresh();startPoll();}else{crawlBtn.disabled=false;}}
-    catch(e){crawlBtn.disabled=false;}});
+    try{const r=await fetch('api/crawl'+force,{method:'POST'});return r.status===202||r.status===409;}catch(e){return false;}
+  }
+  async function refresh(){try{const r=await fetch('api/status');if(r.ok){const s=await r.json();paint(s);return s;}}catch(e){}return null;}
+
+  async function tick(){
+    let s=null;try{const r=await fetch('api/status');if(r.ok)s=await r.json();}catch(e){}
+    if(!s)return;
+    paint(s);
+    await reloadData();                         // Tabelle/Karte live mitwachsen lassen
+    if(!s.running){
+      if(autoRun&&s.pending>0){
+        if(chunkStartPending!=null&&s.pending>=chunkStartPending){autoRun=false;paint(s);clearInterval(poll);poll=null;return;}
+        chunkStartPending=s.pending;await startCrawl();await refresh();   // nächstes Häppchen
+      }else{autoRun=false;paint(s);clearInterval(poll);poll=null;}
+    }
+  }
+  function startPoll(){if(poll)return;poll=setInterval(tick,3000);}
+
+  crawlBtn.addEventListener('click',async()=>{
+    crawlBtn.disabled=true;autoRun=true;chunkStartPending=null;
+    try{await fetch('api/scope',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentScope())});}catch(e){}
+    const ok=await startCrawl();
+    if(ok){await refresh();startPoll();}else{autoRun=false;crawlBtn.disabled=false;}
+  });
   saveBtn.addEventListener('click',async()=>{
     try{const r=await fetch('api/scope',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentScope())});
       if(r.ok){const s=document.getElementById('srvSaved');s.hidden=false;setTimeout(()=>s.hidden=true,1800);}}
     catch(e){}});
-  if(st.running)startPoll();
+  if(st.running){autoRun=true;startPoll();}
 })();
 
 render();

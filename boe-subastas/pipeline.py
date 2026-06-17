@@ -14,6 +14,13 @@ from store import Store, append_raw
 
 log = logging.getLogger("pipeline")
 
+# Live-Fortschritt des laufenden Crawls (vom Server über /api/status sichtbar).
+PROGRESS: dict = {"phase": "idle", "done": 0, "total": 0, "note": ""}
+
+
+def _progress(phase: str, done: int = 0, total: int = 0, note: str = "") -> None:
+    PROGRESS.update(phase=phase, done=done, total=total, note=note)
+
 
 def discover(start: dt.date, end: dt.date, store: Store,
              focus_codes: set[str] | None = None) -> int:
@@ -34,13 +41,23 @@ def discover(start: dt.date, end: dt.date, store: Store,
                 kept.append(r)
         log.info("Provinz-Vorfilter: %s von %s Einträgen behalten", len(kept), len(records))
         records = kept
+    # Bereits bekannte Anuncios nicht erneut auflösen (macht Wiederholungsläufe billig).
+    ids = [r.get("boe_anuncio_id") for r in records if r.get("boe_anuncio_id")]
+    known = store.known_anuncio_ids(ids)
+    new_records = [r for r in records if r.get("boe_anuncio_id") not in known]
+    log.info("Discovery: %s neue Anuncios (von %s), %s bereits bekannt",
+             len(new_records), len(records), len(known))
     # SUB-ID nachladen, wo sie nicht im Titel stand (aus dem Anuncio-XML).
-    for r in records:
+    total = len(new_records)
+    _progress("discover", 0, total, "SUB-IDs ableiten")
+    for i, r in enumerate(new_records, 1):
         if not r.get("sub_id") and r.get("url_xml"):
             r["sub_id"] = api.sub_id_from_anuncio_xml(r["url_xml"])
-    append_raw("anuncios", None, records)
-    saved = store.save_anuncios(records)
-    with_sub = sum(1 for r in records if r.get("sub_id"))
+        if i % 5 == 0 or i == total:
+            _progress("discover", i, total, "SUB-IDs ableiten")
+    append_raw("anuncios", None, new_records)
+    saved = store.save_anuncios(new_records)
+    with_sub = sum(1 for r in new_records if r.get("sub_id"))
     log.info("Discovery: %s Anuncios gespeichert, davon %s mit SUB-ID", saved, with_sub)
     return saved
 
@@ -144,8 +161,10 @@ def enrich(store: Store, limit: int | None = None, with_pdf: bool = True) -> int
 
     sub_ids = store.pending_sub_ids(limit=limit)
     log.info("Enrichment: %s SUB-IDs offen", len(sub_ids))
+    total = len(sub_ids)
+    _progress("enrich", 0, total, "Detailseiten holen")
     done = skipped = 0
-    for sub_id in sub_ids:
+    for idx, sub_id in enumerate(sub_ids, 1):
         try:
             sub = portal.get_subasta(
                 sub_id,
@@ -169,6 +188,7 @@ def enrich(store: Store, limit: int | None = None, with_pdf: bool = True) -> int
             done += 1
         except Exception as exc:  # noqa: BLE001
             log.warning("Enrichment fehlgeschlagen %s: %s", sub_id, exc)
+        _progress("enrich", idx, total, "Detailseiten holen")
     log.info("Enrichment: %s verarbeitet, %s außerhalb des Scopes übersprungen", done, skipped)
     return done
 
@@ -238,11 +258,13 @@ def crawl_now(days_back: int = 30, limit: int | None = None, *, force: bool = Fa
     for name, fn in (("geocode", _step_geocode),
                      ("catastro", _step_catastro),
                      ("idealista", _step_idealista)):
+        _progress(name, 0, 0, "anreichern")
         try:
             summary["steps"][name] = fn(limit)
         except Exception as exc:  # noqa: BLE001 - bewusst tolerant
             log.warning("Schritt %s übersprungen: %s", name, exc)
             summary["steps"][name] = f"skipped: {exc}"
+    _progress("done", 0, 0, "")
     return summary
 
 

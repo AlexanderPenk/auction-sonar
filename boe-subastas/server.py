@@ -123,7 +123,9 @@ def _run_crawl(force: bool = False) -> None:
         _state["last_error"] = None
     try:
         days = int(os.getenv("CRAWL_DAYS_BACK", "30"))
-        summary = pipeline.crawl_now(days_back=days, force=force)
+        # Begrenzung pro Lauf, damit ein Crawl nie ewig läuft. 0 = unbegrenzt.
+        lim = int(os.getenv("ENRICH_LIMIT", "40")) or None
+        summary = pipeline.crawl_now(days_back=days, limit=lim, force=force)
         # tatsächlich verwendeten Suchraum festhalten (config nach reload_scope)
         scope = {
             "focus_provincias": list(config.FOCUS_PROVINCIAS),
@@ -191,6 +193,14 @@ def api_status(_: None = Depends(auth)) -> dict:
         st["rows"] = 0
         st["subastas"] = 0
     st["scheduler_hours"] = float(os.getenv("CRAWL_INTERVAL_HOURS", "0") or 0)
+    st["progress"] = dict(pipeline.PROGRESS)   # Live-Fortschritt des laufenden Laufs
+    try:
+        from store import Store
+        _s = Store()
+        st["pending"] = _s.pending_count()
+        _s.close()
+    except Exception:  # noqa: BLE001
+        st["pending"] = None
     st["days_since"] = None
     if st.get("last_run"):
         try:
