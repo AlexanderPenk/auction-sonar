@@ -198,9 +198,11 @@ def api_status(_: None = Depends(auth)) -> dict:
         from store import Store
         _s = Store()
         st["pending"] = _s.pending_count()
+        st["sub_total"] = _s.total_sub_ids()
         _s.close()
     except Exception:  # noqa: BLE001
         st["pending"] = None
+        st["sub_total"] = None
     st["days_since"] = None
     if st.get("last_run"):
         try:

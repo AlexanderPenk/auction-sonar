@@ -507,8 +507,16 @@ const today=new Date();today.setHours(0,0,0,0);
 const daysLeft=iso=>{if(!iso)return null;const d=new Date(iso);if(isNaN(d))return null;return Math.ceil((d-today)/86400000);};
 const discount=r=>(r.tasacion&&r.tasacion>0&&r.valor_subasta!=null)?1-r.valor_subasta/r.tasacion:null;
 const tipoShort=t=>!t?'—':/notar/i.test(t)?'Notarial':/administ/i.test(t)?'Administrativa':/judicial/i.test(t)?'Judicial':t;
-const mapsUrl=r=>'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(
-  [r.direccion,r.codigo_postal,r.municipio,r.provincia,'España'].filter(Boolean).join(', '));
+// Exakte Koordinaten (aus dem Kataster) → Satellitenansicht direkt auf dem Grundstück.
+// Sonst Fallback auf Adress-Suche (nur ortsgenau).
+const mapsUrl=r=>{
+  if(r.latitud!=null&&r.longitud!=null)
+    return `https://www.google.com/maps?q=${r.latitud},${r.longitud}&t=k&z=19`;
+  return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(
+    [r.direccion,r.codigo_postal,r.municipio,r.provincia,'España'].filter(Boolean).join(', '));
+};
+// Genauigkeit: exakt (Katasterreferenz + Koordinaten vorhanden) vs. nur ortsgenau.
+const isExact=r=>r.referencia_catastral&&r.latitud!=null;
 DATA.forEach(r=>{r._days=daysLeft(r.fecha_fin);r._disc=discount(r);});
 
 const state={q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,pos:null,
@@ -572,7 +580,7 @@ function detailRow(r){
     ${row('Registry data',r.datos_registrales)}
     ${row('Charges',r.cargas)}
     <div class="full"><div class="docs">
-      <a class="maps-inline" href="${mapsUrl(r)}" target="_blank" rel="noopener">📍 Open in Google Maps</a>
+      <a class="maps-inline" href="${mapsUrl(r)}" target="_blank" rel="noopener">📍 ${isExact(r)?'Open exact location (satellite)':'Open location (approx. — town only)'}</a>
       ${docs}</div></div>
     ${r.detail_url?`<div class="full open-boe"><a href="${r.detail_url}" target="_blank" rel="noopener">Open auction on BOE portal ↗</a></div>`:''}
   </div></td></tr>`;
@@ -615,7 +623,7 @@ function bodyHtml(rows){
       <td>${hab}</td><td>${pos}</td>
       <td><span class="refcat">${r.referencia_catastral||'—'}</span></td>
       <td><div class="acts">
-        <a class="iconbtn" href="${mapsUrl(r)}" target="_blank" rel="noopener" title="Google Maps" onclick="event.stopPropagation()">📍</a>
+        <a class="iconbtn" href="${mapsUrl(r)}" target="_blank" rel="noopener" title="${isExact(r)?'Exact location (satellite)':'Approximate — town only'}" onclick="event.stopPropagation()">📍</a>
         ${r.detail_url?`<a class="iconbtn" href="${r.detail_url}" target="_blank" rel="noopener" title="BOE-Portal" onclick="event.stopPropagation()">↗</a>`:''}
       </div></td>
     </tr>${open?detailRow(r):''}`;
@@ -664,7 +672,7 @@ function renderMap(rows){
       <div class="pp-row">${r.subtipo||''} ${r.descripcion?'· '+r.descripcion:''}</div>
       <div class="pp-row"><b>${eur(r.valor_subasta)}</b>${disc}${r.precio_m2!=null?' · '+fmt.format(r.precio_m2)+' €/m²':''}</div>
       <div class="pp-row">${r._days!=null&&r._days>=0?r._days+' days':'closed'}</div>
-      <div class="pp-links"><a href="${mapsUrl(r)}" target="_blank" rel="noopener">Maps</a>
+      <div class="pp-links"><a href="${mapsUrl(r)}" target="_blank" rel="noopener">${isExact(r)?'Satellite ↗':'Maps (approx) ↗'}</a>
         ${r.detail_url?`<a href="${r.detail_url}" target="_blank" rel="noopener">BOE ↗</a>`:''}</div>`);
     pts.push([r.latitud,r.longitud]);
   });
@@ -839,16 +847,27 @@ buildScope();
   const PHASE={discover:'Finding auctions',enrich:'Fetching details',geocode:'Locating on map',
                catastro:'Land registry',idealista:'Market values',done:'Done',idle:''};
 
-  function bar(p,pending){
-    if(!p||!p.phase||p.phase==='idle')return '';
-    const label=PHASE[p.phase]||p.phase;
-    if(p.total>0){const pct=Math.min(100,Math.round(100*p.done/p.total));
-      return `<div class="pbar"><div class="pbar-fill" style="width:${pct}%"></div></div>
-        <div class="srv-sub">${label}: ${p.done}/${p.total} (${pct}%)${pending?` · ${pending} remaining`:''}</div>`;}
-    if(p.phase!=='done')
-      return `<div class="pbar indet"><div class="pbar-fill"></div></div>
-        <div class="srv-sub">${label}…${pending?` · ${pending} remaining`:''}</div>`;
-    return '';
+  function oneBar(label,done,total,extra){
+    const pct=total>0?Math.min(100,Math.round(100*done/total)):0;
+    return `<div class="srv-sub" style="margin-top:6px">${label}: ${done}/${total} (${pct}%)${extra?` · ${extra}`:''}</div>
+      <div class="pbar"><div class="pbar-fill" style="width:${pct}%"></div></div>`;
+  }
+  function bars(s){
+    const p=s.progress||{};
+    let html='';
+    // Leiste 1 — Finden: nur während der Findephase aussagekräftig.
+    if(p.phase==='discover'&&p.total>0){
+      html+=oneBar('① Finding auctions',p.done,p.total,'scanning BOE');
+    }
+    // Leiste 2 — Anreichern: Gesamtfortschritt über alle gefundenen Versteigerungen.
+    const total=s.sub_total||0, pending=s.pending||0, done=Math.max(0,total-pending);
+    if(total>0){
+      html+=oneBar('② Enriching auctions',done,total,pending?`${pending} remaining`:'complete');
+      // aktuelle Tätigkeit als Klartext darunter
+      if(s.running&&p.phase&&p.phase!=='discover'&&p.phase!=='idle'&&p.phase!=='done')
+        html+=`<div class="srv-sub">→ ${PHASE[p.phase]||p.phase}…</div>`;
+    }
+    return html;
   }
   function paint(s){
     const busy=s.running;
@@ -860,7 +879,7 @@ buildScope();
     const stale=s.days_since!=null&&s.days_since>=7;
     const head=busy?'Crawling…':(autoRun?'Continuing…':'Idle');
     let html=`<div><span class="dot"></span>${head} · ${s.subastas||0} auctions / ${s.rows||0} rows</div>`;
-    if(busy||autoRun)html+=bar(s.progress,s.pending);
+    if(busy||autoRun)html+=bars(s);
     html+= last
       ? `<div class="srv-sub">Last read: ${last}${ago?` (${ago})`:''} · ${scopeTxt}</div>`
       : `<div class="srv-sub">Not crawled yet — set your provinces and hit Crawl now.</div>`;

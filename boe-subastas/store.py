@@ -116,6 +116,13 @@ class Store:
             "WHERE sub_id IS NOT NULL AND enriched = 0").fetchone()
         return int(row["n"]) if row else 0
 
+    def total_sub_ids(self) -> int:
+        """Wie viele SUB-IDs insgesamt bekannt sind (angereichert + wartend)."""
+        row = self.conn.execute(
+            "SELECT COUNT(DISTINCT sub_id) AS n FROM anuncios "
+            "WHERE sub_id IS NOT NULL").fetchone()
+        return int(row["n"]) if row else 0
+
     def pending_sub_ids(self, limit: int | None = None) -> list[str]:
         sql = ("SELECT DISTINCT sub_id FROM anuncios "
                "WHERE sub_id IS NOT NULL AND enriched = 0")
