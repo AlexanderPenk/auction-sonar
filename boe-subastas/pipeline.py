@@ -235,8 +235,8 @@ def crawl_now(days_back: int = 30, limit: int | None = None, *, force: bool = Fa
     finally:
         store.close()
 
-    for name, fn in (("catastro", _step_catastro),
-                     ("geocode", _step_geocode),
+    for name, fn in (("geocode", _step_geocode),
+                     ("catastro", _step_catastro),
                      ("idealista", _step_idealista)):
         try:
             summary["steps"][name] = fn(limit)

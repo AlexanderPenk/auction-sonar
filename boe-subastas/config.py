@@ -16,11 +16,11 @@ for _p in (DATA_DIR, RAW_DIR, PDF_DIR):
 # ── Höfliches Crawlen ────────────────────────────────────────────────────────
 # Ehrlicher User-Agent mit Kontakt ist Pflicht, wenn man gegen robots.txt geht.
 USER_AGENT = "boe-subastas-research/0.1 (+kontakt@example.com)"
-REQUEST_DELAY = 2.5      # Sekunden Grundpause zwischen Requests
-REQUEST_JITTER = 1.5     # zufälliger Aufschlag 0..JITTER, damit kein Takt entsteht
-REQUEST_TIMEOUT = 30
-MAX_RETRIES = 3
-BACKOFF_FACTOR = 2.0     # Wartezeit verdoppelt sich pro Fehlversuch
+REQUEST_DELAY = 1.0      # Sekunden Grundpause zwischen Requests (höflich, aber nicht lähmend)
+REQUEST_JITTER = 0.7     # zufälliger Aufschlag 0..JITTER, damit kein Takt entsteht
+REQUEST_TIMEOUT = 12     # zügig abbrechen statt 30 s hängen
+MAX_RETRIES = 2
+BACKOFF_FACTOR = 1.5     # moderate Steigerung der Wartezeit pro Fehlversuch
 
 # Optionaler Login-Cookie (manche Edicto-/Pliego-PDFs verlangen eine Sitzung).
 # Nach manuellem Login im Browser den Cookie-Header hier hinterlegen, z. B.:

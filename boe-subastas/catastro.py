@@ -59,18 +59,19 @@ class CatastroClient:
         self.session.headers.update({"User-Agent": config.USER_AGENT})
 
     def _get(self, url: str, params: dict) -> ET.Element | None:
-        # Kleiner Retry mit Backoff: der Kataster-Dienst drosselt zeitweise.
+        # Fail-fast: kurzer Timeout, wenige Versuche, damit ein zickiger
+        # Kataster-Dienst den Lauf nicht stundenlang blockiert.
         last_exc = None
-        for attempt in range(3):
+        for attempt in range(2):
             try:
-                resp = self.session.get(url, params=params, timeout=30)
+                resp = self.session.get(url, params=params, timeout=12)
                 resp.raise_for_status()
                 root = _parse(resp.text)
                 time.sleep(self.delay)          # Höflichkeitspause
                 return root
             except (requests.RequestException, ET.ParseError) as exc:
                 last_exc = exc
-                time.sleep(self.delay * (attempt + 1) + 0.4)
+                time.sleep(self.delay + 0.3)
         log.warning("Catastro-Aufruf fehlgeschlagen (%s): %s", url, last_exc)
         return None
 
@@ -137,8 +138,8 @@ def enrich_pending(db_path: Path = config.DB_PATH, *, limit: int | None = None,
             if d:
                 updates.update({k: v for k, v in d.items()
                                 if k in ("superficie_m2", "anio_construccion", "uso_catastral") and v is not None})
-        if r["latitud"] is None:
-            c = client.coords(rc)
+        if r["latitud"] is None or r["superficie_m2"] is None:
+            c = client.coords(rc)   # exakte Parzellen-Koordinaten schlagen Ortsebene
             if c:
                 updates["latitud"], updates["longitud"] = c
         if updates:
