@@ -302,37 +302,34 @@ def api_debug(_: None = Depends(auth)) -> dict:
             except Exception as e:  # noqa: BLE001
                 out["portal_detail"] = {"ok": False, "sub_id": sub_id, "error": str(e)[:300]}
 
-        # Struktur der Justiz-Sektion (4) untersuchen: liefert das Sumario die
-        # Provinz/den Ort schon mit? Dann können wir gratis vorfiltern.
+        # Anreicherung prüfen: erreichen wir Catastro & Nominatim vom Server?
         try:
-            import json as _json
-            sec4 = None
-            for diario in diarios:
-                for seccion in boe_api._aslist(diario.get("seccion")):
-                    if str(seccion.get("codigo")) == "4":
-                        sec4 = seccion
-                        break
-                if sec4:
-                    break
-            if sec4:
-                probe = {"seccion_keys": list(sec4.keys())}
-                # Verschachtelung anzeigen (departamento/epigrafe-Namen)
-                deps = boe_api._aslist(sec4.get("departamento"))
-                probe["n_departamentos"] = len(deps)
-                if deps:
-                    d0 = deps[0]
-                    probe["departamento_keys"] = list(d0.keys()) if isinstance(d0, dict) else str(type(d0))
-                    probe["departamento_nombre"] = d0.get("nombre") if isinstance(d0, dict) else None
-                its = list(boe_api._iter_items(sec4))
-                if its:
-                    probe["item_keys"] = list(its[0].keys())
-                    probe["item_sample"] = _json.dumps(its[0], ensure_ascii=False)[:500]
-                probe["raw_head"] = _json.dumps(sec4, ensure_ascii=False)[:1400]
-                out["section4_structure"] = probe
-            else:
-                out["section4_structure"] = "keine Sektion 4 gefunden"
+            rc = "9368704YH1896N0010MX"  # Alcoy (bekannt gültig)
+            from catastro import CatastroClient
+            cc = CatastroClient()
+            try:
+                datos = cc.datos(rc)
+            except Exception as e:  # noqa: BLE001
+                datos = {"error": str(e)[:200]}
+            try:
+                coords = cc.coords(rc)
+            except Exception as e:  # noqa: BLE001
+                coords = {"error": str(e)[:200]}
+            out["catastro_probe"] = {"rc": rc, "datos": datos, "coords": coords}
         except Exception as e:  # noqa: BLE001
-            out["section4_structure"] = {"error": str(e)[:200]}
+            out["catastro_probe"] = {"error": str(e)[:200]}
+        try:
+            import requests as _rq
+            import config as _cfg
+            from geocode import geocode_address
+            s = _rq.Session()
+            out["geocode_probe"] = {
+                "alcoy_alicante": geocode_address(["Alcoy", "Alicante", "España"], session=s),
+                "marbella_malaga": geocode_address(["Marbella", "Málaga", "España"], session=s),
+                "user_agent": _cfg.USER_AGENT,
+            }
+        except Exception as e:  # noqa: BLE001
+            out["geocode_probe"] = {"error": str(e)[:200]}
     except Exception as e:  # noqa: BLE001
         out["fatal"] = str(e)
     return out
