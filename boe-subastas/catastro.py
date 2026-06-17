@@ -86,17 +86,28 @@ class CatastroClient:
         }
 
     def coords(self, rc: str) -> tuple[float, float] | None:
-        """(lat, lon) des Parzellen-Zentroids in EPSG:4326."""
-        root = self._get(CPMRC, {"Provincia": "", "Municipio": "",
-                                 "SRS": "EPSG:4326", "RC": rc})
-        if root is None or _errors(root):
-            return None
-        lon = _text(root, "xcen")   # mit SRS=EPSG:4326: xcen = longitud
-        lat = _text(root, "ycen")   #                    ycen = latitud
-        try:
-            return (float(lat), float(lon)) if lat and lon else None
-        except ValueError:
-            return None
+        """(lat, lon) des Parzellen-Zentroids in EPSG:4326.
+        Consulta_CPMRC erwartet die 14-stellige Parzellen-RC; die volle 20-stellige
+        führt teils zu einem Fehler. Daher zuerst 14-stellig, dann voll versuchen."""
+        candidates = []
+        rc = (rc or "").strip()
+        if len(rc) >= 14:
+            candidates.append(rc[:14])
+        if rc and rc not in candidates:
+            candidates.append(rc)
+        for cand in candidates:
+            root = self._get(CPMRC, {"Provincia": "", "Municipio": "",
+                                     "SRS": "EPSG:4326", "RC": cand})
+            if root is None or _errors(root):
+                continue
+            lon = _text(root, "xcen")   # mit SRS=EPSG:4326: xcen = longitud
+            lat = _text(root, "ycen")   #                    ycen = latitud
+            try:
+                if lat and lon:
+                    return (float(lat), float(lon))
+            except ValueError:
+                continue
+        return None
 
 
 def enrich_pending(db_path: Path = config.DB_PATH, *, limit: int | None = None,

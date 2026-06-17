@@ -20,24 +20,46 @@ import requests
 import config
 
 log = logging.getLogger("geocode")
+# Photon (komoot) zuerst: funktioniert auch aus Rechenzentren (Render). Nominatim
+# blockt Datacenter-IPs häufig und dient daher nur als Reserve.
+PHOTON = "https://photon.komoot.io/api/"
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
 
 
+def _photon(query: str, session: requests.Session) -> tuple[float, float] | None:
+    resp = session.get(PHOTON, params={"q": query, "limit": 1},
+                       headers={"User-Agent": config.USER_AGENT}, timeout=30)
+    resp.raise_for_status()
+    feats = resp.json().get("features") or []
+    if feats:
+        lon, lat = feats[0]["geometry"]["coordinates"][:2]
+        return float(lat), float(lon)
+    return None
+
+
+def _nominatim(query: str, session: requests.Session) -> tuple[float, float] | None:
+    resp = session.get(NOMINATIM, params={"q": query, "format": "json", "limit": 1,
+                                          "countrycodes": "es"},
+                       headers={"User-Agent": config.USER_AGENT}, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    if data:
+        return float(data[0]["lat"]), float(data[0]["lon"])
+    return None
+
+
 def geocode_address(parts: list[str | None], *, session: requests.Session) -> tuple[float, float] | None:
-    """Adressbestandteile → (lat, lon) oder None."""
+    """Adressbestandteile → (lat, lon) oder None. Versucht Photon, dann Nominatim."""
     query = ", ".join(p for p in parts if p)
     if not query:
         return None
-    try:
-        resp = session.get(NOMINATIM, params={"q": query, "format": "json", "limit": 1,
-                                              "countrycodes": "es"},
-                           headers={"User-Agent": config.USER_AGENT}, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-        if data:
-            return float(data[0]["lat"]), float(data[0]["lon"])
-    except (requests.RequestException, ValueError, KeyError) as exc:
-        log.warning("Geocoding fehlgeschlagen für %r: %s", query, exc)
+    for fn in (_photon, _nominatim):
+        try:
+            res = fn(query, session)
+            if res:
+                return res
+        except (requests.RequestException, ValueError, KeyError, IndexError) as exc:
+            log.warning("Geocoder %s fehlgeschlagen für %r: %s", fn.__name__, query, exc)
     return None
 
 
