@@ -59,15 +59,20 @@ class CatastroClient:
         self.session.headers.update({"User-Agent": config.USER_AGENT})
 
     def _get(self, url: str, params: dict) -> ET.Element | None:
-        try:
-            resp = self.session.get(url, params=params, timeout=30)
-            resp.raise_for_status()
-            return _parse(resp.text)
-        except (requests.RequestException, ET.ParseError) as exc:
-            log.warning("Catastro-Aufruf fehlgeschlagen (%s): %s", url, exc)
-            return None
-        finally:
-            time.sleep(self.delay)
+        # Kleiner Retry mit Backoff: der Kataster-Dienst drosselt zeitweise.
+        last_exc = None
+        for attempt in range(3):
+            try:
+                resp = self.session.get(url, params=params, timeout=30)
+                resp.raise_for_status()
+                root = _parse(resp.text)
+                time.sleep(self.delay)          # Höflichkeitspause
+                return root
+            except (requests.RequestException, ET.ParseError) as exc:
+                last_exc = exc
+                time.sleep(self.delay * (attempt + 1) + 0.4)
+        log.warning("Catastro-Aufruf fehlgeschlagen (%s): %s", url, last_exc)
+        return None
 
     def datos(self, rc: str) -> dict | None:
         """Nicht-geschützte Sachdaten zur RC: superficie_m2, anio, uso, direccion."""
