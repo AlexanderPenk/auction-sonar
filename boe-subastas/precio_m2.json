@@ -1,0 +1,91 @@
+{
+  "_meta": {
+    "was_ist_das": "Lokale €/m²-Werte für die Marktwert-Schätzung ohne Idealista-API.",
+    "logik": "Pro Objekt: 1) barrios (Treffer im Adresstext), 2) municipios (Gemeinde), 3) provincias (Provinz). Erster Treffer gewinnt.",
+    "quelle": "Idealista-Preisberichte/-news (informes-precio-vivienda), Stand Feb–Jun 2026. Hauptstädte & Küstenorte = berichtete Zahlen; kleinere Orte = grobe Schätzungen zum Nachschärfen.",
+    "WICHTIG_asking_prices": "Idealista = ANGEBOTSPREISE, typ. 10–20% ÜBER realem Verkaufspreis. Marktwert/Upside daher OPTIMISTISCH — für konservative Rechnung 10–15% abziehen.",
+    "abgedeckte_provinzen": "Cádiz, Málaga, Granada, Almería, Murcia, Alicante, Valencia, Barcelona, Girona, Huelva, Madrid (+ Illes Balears).",
+    "einheit": "EUR pro m² Wohnfläche"
+  },
+
+  "barrios": {
+    "_kommentar": "Distinktive Premium-Lagen (Großstadt). Greifen nur bei Treffer im Adresstext.",
+    "salamanca": 8500, "chamberi": 8200, "retiro": 9000, "chamartin": 7000,
+    "malasana": 6500, "chueca": 6800, "salesas": 7500, "la moraleja": 6579,
+    "sarria": 7000, "sant gervasi": 7000, "pedralbes": 7000,
+    "son vida": 8600, "santa catalina": 6000,
+    "soho": 3500, "pedregalejo": 4200, "la vina": 2980
+  },
+
+  "municipios": {
+    "_malaga": "Málaga (Idealista ~Mär–Mai 2026)",
+    "malaga": 3720, "marbella": 5572, "benahavis": 5458, "estepona": 4307,
+    "fuengirola": 4395, "benalmadena": 4104, "nerja": 5072, "ojen": 5147,
+    "manilva": 3948, "mijas": 3700, "torremolinos": 3300, "rincon de la victoria": 2800,
+    "velez-malaga": 2000, "ronda": 1600, "antequera": 1300, "coin": 1900, "alhaurin de la torre": 2400,
+
+    "_cadiz": "Cádiz",
+    "cadiz": 3100, "jerez de la frontera": 1800, "chiclana de la frontera": 2150,
+    "el puerto de santa maria": 2500, "sanlucar de barrameda": 2150, "san fernando": 1900,
+    "conil de la frontera": 3200, "tarifa": 3200, "zahara de los atunes": 4333,
+    "vejer de la frontera": 2800, "rota": 2400, "chipiona": 2000, "puerto real": 1800,
+    "la linea de la concepcion": 1600, "algeciras": 1300,
+
+    "_granada": "Granada",
+    "granada": 2619, "motril": 1900, "almunecar": 2400, "salobrena": 2200,
+    "armilla": 2200, "baza": 900, "loja": 1100,
+
+    "_almeria": "Almería",
+    "almeria": 1700, "roquetas de mar": 1700, "el ejido": 1300, "mojacar": 2562,
+    "vera": 1800, "nijar": 1600, "adra": 1200, "huercal-overa": 1100, "almerimar": 2000,
+
+    "_murcia": "Región de Murcia",
+    "murcia": 1540, "cartagena": 1610, "lorca": 1000, "molina de segura": 1300,
+    "mazarron": 1700, "aguilas": 1700, "san javier": 1800, "los alcazares": 1900,
+    "torre-pacheco": 2572, "san pedro del pinatar": 1700, "yecla": 800,
+
+    "_alicante": "Alicante",
+    "alicante": 2550, "elche": 1400, "elx": 1400, "torrevieja": 2200, "orihuela": 2000,
+    "benidorm": 2500, "denia": 2800, "calpe": 2800, "javea": 3200, "xabia": 3200,
+    "altea": 3200, "moraira": 4397, "villajoyosa": 2200, "santa pola": 2300,
+    "pilar de la horadada": 1900, "el campello": 2400,
+
+    "_valencia": "Valencia",
+    "valencia": 3378, "gandia": 1705, "sagunto": 1500, "cullera": 1800,
+    "torrent": 1700, "paterna": 2000, "oliva": 1700, "sueca": 1300,
+
+    "_barcelona": "Barcelona",
+    "barcelona": 5200, "hospitalet de llobregat": 3300, "l'hospitalet de llobregat": 3300,
+    "badalona": 2800, "terrassa": 2300, "sabadell": 2400, "mataro": 2800,
+    "sitges": 5000, "castelldefels": 4200, "gava": 3500, "sant cugat del valles": 4800,
+    "manresa": 1500, "granollers": 2400, "vilanova i la geltru": 3000,
+
+    "_girona": "Girona / Costa Brava",
+    "girona": 2900, "lloret de mar": 2500, "blanes": 2400, "figueres": 1800,
+    "roses": 3000, "castell-platja d'aro": 5000, "platja d'aro": 5000, "palafrugell": 3500,
+    "begur": 5000, "palamos": 3000, "sant feliu de guixols": 3200, "salt": 1700, "olot": 1700,
+
+    "_huelva": "Huelva",
+    "huelva": 1500, "ayamonte": 1976, "isla cristina": 1644, "lepe": 1600,
+    "cartaya": 1700, "punta umbria": 2230, "almonte": 1500, "moguer": 1400,
+    "la antilla": 2863, "el rompido": 2706, "islantilla": 2663, "el portil": 2367,
+
+    "_madrid": "Madrid (capital = stadtweiter Schnitt; zentrale Distrikte siehe barrios)",
+    "madrid": 5960, "pozuelo de alarcon": 4904, "las rozas de madrid": 3800,
+    "alcobendas": 3600, "majadahonda": 4000, "san sebastian de los reyes": 3300,
+    "getafe": 2700, "mostoles": 2400, "alcorcon": 2800, "leganes": 2500,
+    "fuenlabrada": 2200, "alcala de henares": 2400, "torrejon de ardoz": 2400,
+    "parla": 1900, "aranjuez": 1700, "collado villalba": 2400, "rivas-vaciamadrid": 3000,
+
+    "_baleares": "Illes Balears",
+    "palma": 5167, "palma de mallorca": 5167, "calvia": 5000, "santanyi": 4500,
+    "pollensa": 4200, "alcudia": 3600, "llucmajor": 3000, "manacor": 2600, "inca": 2600
+  },
+
+  "provincias": {
+    "malaga": 3500, "cadiz": 2300, "granada": 1900, "almeria": 1500,
+    "murcia": 1600, "alicante": 2000, "valencia": 2000, "barcelona": 3600,
+    "girona": 2600, "huelva": 1679, "madrid": 3200,
+    "illes balears": 5250, "balears": 5250
+  }
+}

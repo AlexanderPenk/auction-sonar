@@ -280,7 +280,8 @@ def crawl_now(days_back: int = 30, limit: int | None = None, *, force: bool = Fa
 
     for name, fn in (("geocode", _step_geocode),
                      ("catastro", _step_catastro),
-                     ("idealista", _step_idealista)):
+                     ("idealista", _step_idealista),
+                     ("market", _step_market_local)):
         if should_cancel and should_cancel():
             summary["cancelled"] = True
             break
@@ -306,4 +307,9 @@ def _step_geocode(limit):
 
 def _step_idealista(limit):
     from idealista import enrich_pending
+    return enrich_pending(limit=limit)
+
+
+def _step_market_local(limit):
+    from market_local import enrich_pending
     return enrich_pending(limit=limit)

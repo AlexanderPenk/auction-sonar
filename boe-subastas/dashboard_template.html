@@ -579,7 +579,7 @@ function detailRow(r){
     ${row('€/m² (on value)',r.precio_m2!=null?fmt.format(r.precio_m2)+' €/m²':'')}
     ${row('Area (appraisal PDF)',r.superficie_valoracion!=null?fmt.format(r.superficie_valoracion)+' m²':'')}
     ${row('Market est. (Idealista)',r.valor_mercado_est!=null?fmt.format(r.valor_mercado_est)+' €':'')}
-    ${row('Market €/m²',r.mercado_eur_m2!=null?fmt.format(r.mercado_eur_m2)+' €/m² ('+(r.comps_n||0)+' comps)':'')}
+    ${row('Market €/m²',r.mercado_eur_m2!=null?fmt.format(r.mercado_eur_m2)+' €/m² '+(r.comps_n>0?'('+r.comps_n+' comps)':'(area est.)'):'')}
     ${row('Upside vs value',r.upside_pct!=null?(r.upside_pct>0?'+':'')+r.upside_pct+' %':'')}
     ${row('Min bid',r.puja_minima!=null?eur(r.puja_minima):'')}
     ${row('Registry data',r.datos_registrales)}
@@ -852,7 +852,7 @@ buildScope();
   const stopBtn=document.getElementById('srvStopCrawl');
   let autoRun=false, poll=null, chunkStartPending=null;
   const PHASE={discover:'Finding auctions',enrich:'Fetching details',geocode:'Locating on map',
-               catastro:'Land registry',idealista:'Market values',done:'Done',idle:''};
+               catastro:'Land registry',idealista:'Market values',market:'Market estimate',done:'Done',idle:''};
 
   function oneBar(label,done,total,extra){
     const pct=total>0?Math.min(100,Math.round(100*done/total)):0;
@@ -895,6 +895,8 @@ buildScope();
     const head=busy?(s.cancelling?'Stopping…':'Crawling…'):(autoRun?'Continuing…':'Idle');
     let html=`<div><span class="dot"></span>${head} · ${s.subastas||0} auctions / ${s.rows||0} rows</div>`;
     html+=`<div class="srv-scope"><b>Search scope:</b> ${scopeSummary(currentScope())}</div>`;
+    if(s.coverage&&s.coverage.bienes>0){const c=s.coverage;
+      html+=`<div class="srv-sub">Coverage: ${c.located}/${c.bienes} located · ${c.surface}/${c.bienes} size · ${c.year}/${c.bienes} year · ${c.cadastral_ref}/${c.bienes} cadastral · ${c.market}/${c.bienes} market</div>`;}
     if(busy||autoRun)html+=bars(s);
     html+= last
       ? `<div class="srv-sub">Last read: ${last}${ago?` (${ago})`:''} · ${scopeTxt}</div>`

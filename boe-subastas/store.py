@@ -123,6 +123,21 @@ class Store:
             "WHERE sub_id IS NOT NULL").fetchone()
         return int(row["n"]) if row else 0
 
+    def coverage(self) -> dict:
+        """Wie vollständig sind die Felder gefüllt (für die Daten-Abdeckung im UI)?"""
+        def q(where: str) -> int:
+            row = self.conn.execute(
+                f"SELECT COUNT(*) AS n FROM bienes WHERE {where}").fetchone()
+            return int(row["n"]) if row else 0
+        return {
+            "bienes": q("1=1"),
+            "located": q("latitud IS NOT NULL"),
+            "cadastral_ref": q("referencia_catastral IS NOT NULL AND referencia_catastral != ''"),
+            "surface": q("superficie_m2 IS NOT NULL"),
+            "year": q("anio_construccion IS NOT NULL AND anio_construccion != ''"),
+            "market": q("valor_mercado_est IS NOT NULL"),
+        }
+
     def reset(self) -> None:
         """Alle gesammelten Daten löschen (Tabelle für Tabelle), Struktur bleibt."""
         for t in ("documentos", "bienes", "lotes", "subastas", "anuncios"):

@@ -184,3 +184,56 @@ def reload_scope() -> None:
 
 
 reload_scope()
+
+
+# ── Lokale €/m²-Schätzung (Marktwert ohne Idealista) ─────────────────────────
+PRECIO_M2_PATH = ROOT / "precio_m2.json"
+_PRECIO_CACHE: dict | None = None
+
+
+def _norm_plain(s: str) -> str:
+    """Akzente weg, klein, Mehrfach-Leerzeichen zusammen."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
+    return " ".join(s.split())
+
+
+def _load_precio() -> dict:
+    global _PRECIO_CACHE
+    if _PRECIO_CACHE is None:
+        import json as _json
+        try:
+            raw = _json.loads(PRECIO_M2_PATH.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            raw = {}
+        def clean(d):
+            out = {}
+            for k, v in (d or {}).items():
+                if k.startswith("_") or not isinstance(v, (int, float)):
+                    continue
+                out[_norm_plain(k)] = float(v)
+            return out
+        _PRECIO_CACHE = {
+            "barrios": clean(raw.get("barrios")),
+            "municipios": clean(raw.get("municipios")),
+            "provincias": clean(raw.get("provincias")),
+        }
+    return _PRECIO_CACHE
+
+
+def precio_m2_lookup(municipio: str | None, provincia: str | None,
+                     direccion: str | None) -> tuple[float | None, str | None]:
+    """€/m² nach Stufen-Logik: Barrio (Treffer im Adresstext) → Gemeinde → Provinz.
+    Gibt (eur_m2, quelle) zurück; (None, None) wenn nichts passt."""
+    tab = _load_precio()
+    addr = _norm_plain(f"{direccion or ''} {municipio or ''}")
+    for key, val in tab["barrios"].items():
+        if key and key in addr:
+            return val, "barrio"
+    muni = _norm_plain(municipio or "")
+    if muni in tab["municipios"]:
+        return tab["municipios"][muni], "municipio"
+    prov = _norm_plain((provincia or "").split("/")[0])
+    if prov in tab["provincias"]:
+        return tab["provincias"][prov], "provincia"
+    return None, None

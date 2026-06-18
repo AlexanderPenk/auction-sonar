@@ -206,10 +206,12 @@ def api_status(_: None = Depends(auth)) -> dict:
         _s = Store()
         st["pending"] = _s.pending_count()
         st["sub_total"] = _s.total_sub_ids()
+        st["coverage"] = _s.coverage()
         _s.close()
     except Exception:  # noqa: BLE001
         st["pending"] = None
         st["sub_total"] = None
+        st["coverage"] = None
     st["days_since"] = None
     if st.get("last_run"):
         try:
