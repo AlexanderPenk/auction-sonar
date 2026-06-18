@@ -23,7 +23,7 @@ def _progress(phase: str, done: int = 0, total: int = 0, note: str = "") -> None
 
 
 def discover(start: dt.date, end: dt.date, store: Store,
-             focus_codes: set[str] | None = None) -> int:
+             focus_codes: set[str] | None = None, should_cancel=None) -> int:
     """Stufe 1: offizielle API nach Subasta-Anuncios absuchen, SUB-IDs ableiten.
 
     Wenn focus_codes gesetzt ist, werden Einträge VOR dem Dokument-/Portal-Abruf
@@ -32,7 +32,9 @@ def discover(start: dt.date, end: dt.date, store: Store,
     nie eine echte Versteigerung der Zielprovinz verloren geht (Exaktfilter folgt
     beim Enrich über die echte Portal-Provinz)."""
     api = BoeApi()
-    records = api.find_range(start, end)
+    records = api.find_range(start, end, should_cancel=should_cancel)
+    if should_cancel and should_cancel():
+        return 0
     if focus_codes:
         kept = []
         for r in records:
@@ -50,11 +52,20 @@ def discover(start: dt.date, end: dt.date, store: Store,
     # SUB-ID nachladen, wo sie nicht im Titel stand (aus dem Anuncio-XML).
     total = len(new_records)
     _progress("discover", 0, total, "SUB-IDs ableiten")
+    cancelled = False
     for i, r in enumerate(new_records, 1):
+        if should_cancel and should_cancel():
+            log.info("Discovery abgebrochen (Stopp angefordert)")
+            cancelled = True
+            break
         if not r.get("sub_id") and r.get("url_xml"):
             r["sub_id"] = api.sub_id_from_anuncio_xml(r["url_xml"])
         if i % 5 == 0 or i == total:
             _progress("discover", i, total, "SUB-IDs ableiten")
+    if cancelled:
+        # Lauf abgebrochen: diese Charge nicht persistieren, damit ein späterer
+        # Lauf sie sauber (mit aufgelösten SUB-IDs) neu erfassen kann.
+        return 0
     append_raw("anuncios", None, new_records)
     saved = store.save_anuncios(new_records)
     with_sub = sum(1 for r in new_records if r.get("sub_id"))
@@ -153,7 +164,8 @@ def _in_focus(sub) -> bool:
     return True
 
 
-def enrich(store: Store, limit: int | None = None, with_pdf: bool = True) -> int:
+def enrich(store: Store, limit: int | None = None, with_pdf: bool = True,
+           should_cancel=None) -> int:
     """Stufe 2: zu jeder offenen SUB-ID die Portal-Detailseite (+ PDFs) holen."""
     portal_fetcher = Fetcher(cookies=config.PORTAL_COOKIES or None)
     portal = Portal(fetcher=portal_fetcher)
@@ -165,6 +177,9 @@ def enrich(store: Store, limit: int | None = None, with_pdf: bool = True) -> int
     _progress("enrich", 0, total, "Detailseiten holen")
     done = skipped = 0
     for idx, sub_id in enumerate(sub_ids, 1):
+        if should_cancel and should_cancel():
+            log.info("Enrichment abgebrochen (Stopp angefordert)")
+            break
         try:
             sub = portal.get_subasta(
                 sub_id,
@@ -205,7 +220,8 @@ def run(start: dt.date, end: dt.date, out: str, limit: int | None = None) -> Non
     log.info("Export geschrieben: %s", path)
 
 
-def crawl_now(days_back: int = 30, limit: int | None = None, *, force: bool = False) -> dict:
+def crawl_now(days_back: int = 30, limit: int | None = None, *, force: bool = False,
+              should_cancel=None, with_pdf: bool = False) -> dict:
     """Vollständiger Lauf für den Live-Server: Discovery → Enrich → Catastro →
     Geocode → Idealista. Externe Schritte sind fehlertolerant.
 
@@ -236,7 +252,8 @@ def crawl_now(days_back: int = 30, limit: int | None = None, *, force: bool = Fa
                         start = max(start, dt.date.fromisoformat(ls) - dt.timedelta(days=2))
                     except Exception:  # noqa: BLE001
                         pass
-            summary["discovered"] = discover(start, end, store, focus_codes=focus_codes)
+            summary["discovered"] = discover(start, end, store, focus_codes=focus_codes,
+                                              should_cancel=should_cancel)
             summary["mode"] = "api-province"
             summary["window"] = [start.isoformat(), end.isoformat()]
             summary["focus_codes"] = sorted(focus_codes)
@@ -248,16 +265,25 @@ def crawl_now(days_back: int = 30, limit: int | None = None, *, force: bool = Fa
         else:
             end = dt.date.today()
             start = end - dt.timedelta(days=days_back)
-            summary["discovered"] = discover(start, end, store)
+            summary["discovered"] = discover(start, end, store, should_cancel=should_cancel)
             summary["mode"] = "api"
             summary["window"] = [start.isoformat(), end.isoformat()]
-        summary["enriched"] = enrich(store, limit=limit)
+        summary["enriched"] = enrich(store, limit=limit, with_pdf=with_pdf,
+                                     should_cancel=should_cancel)
     finally:
         store.close()
+
+    if should_cancel and should_cancel():
+        summary["cancelled"] = True
+        _progress("done", 0, 0, "")
+        return summary
 
     for name, fn in (("geocode", _step_geocode),
                      ("catastro", _step_catastro),
                      ("idealista", _step_idealista)):
+        if should_cancel and should_cancel():
+            summary["cancelled"] = True
+            break
         _progress(name, 0, 0, "anreichern")
         try:
             summary["steps"][name] = fn(limit)

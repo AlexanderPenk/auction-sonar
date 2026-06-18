@@ -116,9 +116,11 @@ class BoeApi:
         log.info("%s: %s Subasta-Anuncios", day, len(records))
         return records
 
-    def find_range(self, start: dt.date, end: dt.date) -> list[dict]:
+    def find_range(self, start: dt.date, end: dt.date, should_cancel=None) -> list[dict]:
         out: list[dict] = []
         for day in daterange(start, end):
+            if should_cancel and should_cancel():
+                break
             out.extend(self.find_subastas(day))
         return out
 

@@ -37,7 +37,7 @@ security = HTTPBasic(auto_error=False)
 
 # ── Zustand des Crawl-Jobs (mit Persistenz) ─────────────────────────────
 _state_lock = threading.Lock()
-_state: dict = {"running": False, "last_run": None, "last_error": None,
+_state: dict = {"running": False, "cancel": False, "last_run": None, "last_error": None,
                 "last_summary": None, "last_scope": None}
 _LAST_RUN_PATH = config.ROOT / "data" / "last_run.json"
 
@@ -120,12 +120,18 @@ def _run_crawl(force: bool = False) -> None:
         if _state["running"]:
             return
         _state["running"] = True
+        _state["cancel"] = False          # frischer Lauf → Stopp-Flag zurücksetzen
         _state["last_error"] = None
     try:
         days = int(os.getenv("CRAWL_DAYS_BACK", "30"))
         # Begrenzung pro Lauf, damit ein Crawl nie ewig läuft. 0 = unbegrenzt.
         lim = int(os.getenv("ENRICH_LIMIT", "40")) or None
-        summary = pipeline.crawl_now(days_back=days, limit=lim, force=force)
+        # PDFs standardmäßig AUS: teuerster Schritt, liefert kaum Mehrwert
+        # (Fläche kommt aus dem Kataster). Bei Bedarf ENRICH_PDF=1 setzen.
+        with_pdf = os.getenv("ENRICH_PDF", "0") == "1"
+        summary = pipeline.crawl_now(days_back=days, limit=lim, force=force,
+                                     with_pdf=with_pdf,
+                                     should_cancel=lambda: _state.get("cancel"))
         # tatsächlich verwendeten Suchraum festhalten (config nach reload_scope)
         scope = {
             "focus_provincias": list(config.FOCUS_PROVINCIAS),
@@ -194,6 +200,7 @@ def api_status(_: None = Depends(auth)) -> dict:
         st["subastas"] = 0
     st["scheduler_hours"] = float(os.getenv("CRAWL_INTERVAL_HOURS", "0") or 0)
     st["progress"] = dict(pipeline.PROGRESS)   # Live-Fortschritt des laufenden Laufs
+    st["cancelling"] = bool(_state.get("cancel") and _state.get("running"))
     try:
         from store import Store
         _s = Store()
@@ -233,6 +240,16 @@ def api_crawl(force: int = 0, _: None = Depends(auth)) -> JSONResponse:
     started = _start_crawl_thread(force=bool(force))
     code = 202 if started else 409
     return JSONResponse({"started": started, "force": bool(force)}, status_code=code)
+
+
+@app.post("/api/stop")
+def api_stop(_: None = Depends(auth)) -> JSONResponse:
+    """Laufenden Crawl kooperativ abbrechen (stoppt nach dem aktuellen Objekt)."""
+    with _state_lock:
+        running = _state["running"]
+        if running:
+            _state["cancel"] = True
+    return JSONResponse({"stopping": bool(running)})
 
 
 @app.post("/api/reset")

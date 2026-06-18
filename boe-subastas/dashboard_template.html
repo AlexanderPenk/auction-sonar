@@ -330,6 +330,7 @@ body.scope .search,body.insights .search{visibility:hidden}
             <div class="srv-actions">
               <button class="btn" id="srvSave">Save scope to server</button>
               <button class="btn primary" id="srvCrawl">Crawl now</button>
+              <button class="btn danger" id="srvStopCrawl" hidden>Stop crawl</button>
               <label class="srv-force" title="Re-search every province even if crawled recently"><input type="checkbox" id="srvForce"> Force refresh</label>
               <span class="scope-saved" id="srvSaved" hidden>saved ✓</span>
               <button class="btn danger" id="srvReset" title="Delete all collected data and start clean">Reset data</button>
@@ -848,6 +849,7 @@ buildScope();
   document.getElementById('scopeServer').hidden=false;
   const statusEl=document.getElementById('srvStatus');
   const crawlBtn=document.getElementById('srvCrawl'), saveBtn=document.getElementById('srvSave');
+  const stopBtn=document.getElementById('srvStopCrawl');
   let autoRun=false, poll=null, chunkStartPending=null;
   const PHASE={discover:'Finding auctions',enrich:'Fetching details',geocode:'Locating on map',
                catastro:'Land registry',idealista:'Market values',done:'Done',idle:''};
@@ -890,7 +892,7 @@ buildScope();
     const last=s.last_run?new Date(s.last_run).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):null;
     const ago=s.days_since==null?'':(s.days_since<1?'today':s.days_since<2?'1 day ago':Math.round(s.days_since)+' days ago');
     const stale=s.days_since!=null&&s.days_since>=7;
-    const head=busy?'Crawling…':(autoRun?'Continuing…':'Idle');
+    const head=busy?(s.cancelling?'Stopping…':'Crawling…'):(autoRun?'Continuing…':'Idle');
     let html=`<div><span class="dot"></span>${head} · ${s.subastas||0} auctions / ${s.rows||0} rows</div>`;
     html+=`<div class="srv-scope"><b>Search scope:</b> ${scopeSummary(currentScope())}</div>`;
     if(busy||autoRun)html+=bars(s);
@@ -903,6 +905,8 @@ buildScope();
     if(autoRun)html+=`<div class="srv-sub"><a href="#" id="srvStop">Stop auto-continue</a></div>`;
     statusEl.innerHTML=html;
     crawlBtn.disabled=busy||autoRun;
+    if(stopBtn){stopBtn.hidden=!(busy||autoRun);stopBtn.disabled=!!s.cancelling;
+      stopBtn.textContent=s.cancelling?'Stopping…':'Stop crawl';}
     const stop=document.getElementById('srvStop');
     if(stop)stop.addEventListener('click',e=>{e.preventDefault();autoRun=false;paint(s);});
   }
@@ -939,10 +943,33 @@ buildScope();
       if(r.ok){const s=document.getElementById('srvSaved');s.hidden=false;setTimeout(()=>s.hidden=true,1800);}}
     catch(e){}});
   window.__onScopeChange=()=>{try{paint(lastStatus);}catch(e){}};
+
+  // Crawl kooperativ stoppen und warten, bis der Hintergrund-Thread wirklich endet.
+  async function stopAndWait(maxMs=45000){
+    autoRun=false;
+    try{await fetch('api/stop',{method:'POST'});}catch(e){}
+    const t0=Date.now();
+    while(Date.now()-t0<maxMs){
+      let s=null;try{const r=await fetch('api/status');if(r.ok)s=await r.json();}catch(e){}
+      if(s){paint(s);if(!s.running)return true;}
+      await new Promise(r=>setTimeout(r,1500));
+    }
+    return false;
+  }
+  if(stopBtn)stopBtn.addEventListener('click',async()=>{
+    stopBtn.disabled=true;if(poll){clearInterval(poll);poll=null;}
+    await stopAndWait();await reloadData();
+  });
+
   const resetBtn=document.getElementById('srvReset');
   if(resetBtn)resetBtn.addEventListener('click',async()=>{
     if(!confirm('Delete ALL collected auctions and start clean? This cannot be undone.'))return;
     resetBtn.disabled=true;autoRun=false;if(poll){clearInterval(poll);poll=null;}
+    const s=await refresh();
+    if(s&&s.running){                       // läuft noch → erst stoppen
+      const ok=await stopAndWait();
+      if(!ok){alert('Could not stop the crawl in time — please try again in a moment.');resetBtn.disabled=false;return;}
+    }
     try{const r=await fetch('api/reset',{method:'POST'});
       if(r.ok){DATA=[];render();await refresh();}
       else{const j=await r.json().catch(()=>({}));alert('Reset failed: '+(j.error||r.status));}
