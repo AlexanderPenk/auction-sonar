@@ -288,7 +288,7 @@ body.scope .search,body.insights .search{visibility:hidden}
     <div class="field"><label for="fTipo">Type</label><select id="fTipo"><option value="">All</option></select></div>
     <div class="field"><label for="fSubtipo">Property type</label><select id="fSubtipo"><option value="">All</option></select></div>
     <h2>Price</h2>
-    <div class="field"><label>Start price / budget (€)</label>
+    <div class="field"><label>Budget — entry ≈70% (€)</label>
       <div class="minmax"><input id="vMin" type="number" placeholder="min"><span>–</span><input id="vMax" type="number" placeholder="max"></div></div>
     <div class="field"><label for="dMax">Deposit max (€)</label>
       <div class="minmax"><input id="dMax" type="number" placeholder="e.g. 10000"></div></div>
@@ -299,7 +299,8 @@ body.scope .search,body.insights .search{visibility:hidden}
     <h2>Status &amp; risk</h2>
     <div class="field"><label>Primary residence</label>
       <div class="chips" id="fHab"><span class="chip" role="button" tabindex="0" data-v="No" aria-pressed="false">No</span><span class="chip" role="button" tabindex="0" data-v="Sí" aria-pressed="false">Yes</span></div></div>
-    <div class="field"><label>Occupancy</label><div class="chips" id="fPos"></div></div>
+    <div class="field"><label>Days until auction</label>
+      <div class="minmax"><input id="dayMin" type="number" placeholder="min"><span>–</span><input id="dayMax" type="number" placeholder="max"></div></div>
     <div class="field"><label>Deadline</label><div class="chips" id="fOpen"><span class="chip" role="button" tabindex="0" data-v="open" aria-pressed="true">Open only</span></div></div>
     <button class="reset" id="reset">Reset filters</button>
   </aside>
@@ -313,7 +314,7 @@ body.scope .search,body.insights .search{visibility:hidden}
           <th>Property</th>
           <th><button data-sort="tipo">Type<span class="arr">↕</span></button></th>
           <th class="r"><button data-sort="valor">Value<span class="arr">↕</span></button></th>
-          <th class="r"><button data-sort="start" title="Puja mínima — minimum/starting bid">Start<span class="arr">↕</span></button></th>
+          <th class="r"><button data-sort="start" title="Realistic purchase price (Art. 670 LEC): top = 70% safe approval · below = 50% floor (60% if vivienda habitual). Computed from the auction value.">Entry 70/50%<span class="arr">↕</span></button></th>
           <th class="r"><button data-sort="disc">Disc.<span class="arr">↕</span></button></th>
           <th class="r"><button data-sort="pm2">€/m²<span class="arr">↕</span></button></th>
           <th class="r"><button data-sort="mkt">Market<span class="arr">↕</span></button></th>
@@ -517,6 +518,9 @@ body.scope .search,body.insights .search{visibility:hidden}
               <p>What you must pre-pay to be allowed to bid — typically 5–10% of the auction value. Refunded if you lose; counts toward the price if you win.</p></div>
             <div class="ins-card"><div class="term">Minimum bid <span class="es">Puja mínima</span></div>
               <p>The lowest accepted bid, when set. "<b>Sin puja mínima</b>" means no fixed floor — but the court still won't approve awards below the Art. 670 thresholds (≈50–70% of the auction value).</p></div>
+            <div class="ins-card"><div class="term">Entry 70/50% <span class="es">columna "Entry"</span></div>
+              <p>The table's realistic purchase price, computed from the auction value: top number = <b>70%</b> (safe approval), below = <b>50%</b> floor (<b>60%</b> for vivienda habitual). A real puja mínima, if set, raises the floor. The budget filter matches against the 70% figure.</p>
+              <span class="tag good">Use this for budgeting</span></div>
             <div class="ins-card"><div class="term">Bid increment <span class="es">Tramos entre pujas</span></div>
               <p>The step size bids must move in. A bid of, say, value + one tramo is the next valid offer above the current best.</p></div>
             <div class="ins-card"><div class="term">Prior charges <span class="es">Cargas anteriores</span></div>
@@ -573,8 +577,20 @@ const eur=v=>(v==null||isNaN(v))?'—':fmt.format(v)+' €';
 const today=new Date();today.setHours(0,0,0,0);
 const daysLeft=iso=>{if(!iso)return null;const d=new Date(iso);if(isNaN(d))return null;return Math.ceil((d-today)/86400000);};
 const discount=r=>(r.tasacion&&r.tasacion>0&&r.valor_subasta!=null)?1-r.valor_subasta/r.tasacion:null;
-// Startpreis = Mindestgebot (puja mínima), ersatzweise der Auktionswert.
-const startPrice=r=>r.puja_minima!=null?r.puja_minima:r.valor_subasta;
+// Realistischer Kaufpreis nach Art. 670 LEC, bezogen auf den Valor de subasta:
+//  safe = 70% (sicherer Zuschlag) · floor = 50% (40-60% Sonderfälle); bei
+//  vivienda habitual steigt der Boden auf 60%. Eine echte puja mínima bleibt
+//  harte Untergrenze.
+const pctOf=(v,p)=>v!=null?Math.round(v*p):null;
+function startInfo(r){
+  const v=r.valor_subasta, hab=r.vivienda_habitual==='Sí';
+  let safe=pctOf(v,0.70), floor=pctOf(v,hab?0.60:0.50);
+  if(r.puja_minima!=null){
+    floor=floor!=null?Math.max(floor,r.puja_minima):r.puja_minima;
+    if(safe==null||r.puja_minima>safe)safe=r.puja_minima;
+  }
+  return {safe,floor};
+}
 // "Geschlossen": Frist abgelaufen ODER Status abgeschlossen/annulliert/zugeschlagen.
 const CLOSED_RE=/conclu|cancel|desiert|adjudicad|anulad/i;
 const isClosed=r=>(r._days!=null&&r._days<0)||(r.estado&&CLOSED_RE.test(r.estado));
@@ -589,9 +605,9 @@ const mapsUrl=r=>{
 };
 // Genauigkeit: exakt (Katasterreferenz + Koordinaten vorhanden) vs. nur ortsgenau.
 const isExact=r=>r.referencia_catastral&&r.latitud!=null;
-DATA.forEach(r=>{r._days=daysLeft(r.fecha_fin);r._disc=discount(r);r._start=startPrice(r);});
+DATA.forEach(r=>{r._days=daysLeft(r.fecha_fin);r._disc=discount(r);const s=startInfo(r);r._safe=s.safe;r._floor=s.floor;r._start=s.safe;});
 
-const state={q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,pos:null,
+const state={q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,dayMin:null,dayMax:null,
   openOnly:true,sort:'days',dir:1,openRow:null,view:'tabla'};
 
 const uniq=k=>[...new Set(DATA.map(r=>r[k]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
@@ -599,9 +615,6 @@ const fill=(el,vals)=>vals.forEach(v=>{const o=document.createElement('option');
 fill(document.getElementById('fProv'),uniq('provincia'));
 fill(document.getElementById('fTipo'),uniq('tipo_subasta'));
 fill(document.getElementById('fSubtipo'),uniq('subtipo'));
-uniq('situacion_posesoria').forEach(v=>{const c=document.createElement('span');c.className='chip';
-  c.setAttribute('role','button');c.tabIndex=0;c.dataset.v=v;c.setAttribute('aria-pressed','false');
-  c.textContent=v.length>22?v.slice(0,21)+'…':v;c.title=v;document.getElementById('fPos').appendChild(c);});
 
 function visible(){
   const q=state.q.toLowerCase();
@@ -616,7 +629,8 @@ function visible(){
     if(state.pm2Max!=null&&(r.precio_m2==null||r.precio_m2>state.pm2Max))return false;
     if(state.upMin!=null&&(r.upside_pct==null||r.upside_pct<state.upMin))return false;
     if(state.hab&&(r.vivienda_habitual||'')!==state.hab)return false;
-    if(state.pos&&(r.situacion_posesoria||'')!==state.pos)return false;
+    if(state.dayMin!=null&&(r._days==null||r._days<state.dayMin))return false;
+    if(state.dayMax!=null&&(r._days==null||r._days>state.dayMax))return false;
     if(state.openOnly&&isClosed(r))return false;
     return true;
   });
@@ -648,7 +662,9 @@ function detailRow(r){
     ${row('Market est. (Idealista)',r.valor_mercado_est!=null?fmt.format(r.valor_mercado_est)+' €':'')}
     ${row('Market €/m²',r.mercado_eur_m2!=null?fmt.format(r.mercado_eur_m2)+' €/m² '+(r.comps_n>0?'('+r.comps_n+' comps)':'(area est.)'):'')}
     ${row('Upside vs value',r.upside_pct!=null?(r.upside_pct>0?'+':'')+r.upside_pct+' %':'')}
-    ${row('Min bid',r.puja_minima!=null?eur(r.puja_minima):'')}
+    ${row('Safe entry (70%)',r._safe!=null?eur(r._safe):'')}
+    ${row('Floor ('+(r.vivienda_habitual==='Sí'?'60':'50')+'%)',r._floor!=null?eur(r._floor):'')}
+    ${row('Min bid (puja mínima)',r.puja_minima!=null?eur(r.puja_minima):'none set')}
     ${row('Registry data',r.datos_registrales)}
     ${row('Charges',r.cargas)}
     <div class="full"><div class="docs">
@@ -684,7 +700,7 @@ function bodyHtml(rows){
       <td><div class="obj" title="${(r.descripcion||'').replace(/"/g,'')}">${r.subtipo?`<b>${r.subtipo}</b> · `:''}${r.descripcion||r.direccion||''}</div></td>
       <td><span class="tipo-tag">${tipoShort(r.tipo_subasta)}</span></td>
       <td class="num">${eur(r.valor_subasta)}</td>
-      <td class="num">${r.puja_minima!=null?eur(r.puja_minima):(r.valor_subasta!=null?`<span style="color:var(--muted)" title="no separate minimum bid — starts at the auction value">${eur(r.valor_subasta)}</span>`:'—')}</td>
+      <td class="num">${r._safe!=null?`${eur(r._safe)}<br><span style="color:var(--muted);font-size:11px">${r._floor!=null?eur(r._floor):''}</span>`:'—'}</td>
       ${disc}
       <td class="num">${r.precio_m2!=null?fmt.format(r.precio_m2)+' €':'—'}</td>
       <td class="num">${r.valor_mercado_est!=null?fmt.format(r.valor_mercado_est)+' €':'—'}</td>
@@ -743,7 +759,7 @@ function renderMap(rows){
     const disc=r._disc!=null?` · −${Math.round(r._disc*100)}%`:'';
     m.bindPopup(`<div class="pp-muni">${r.municipio||''}</div>
       <div class="pp-row">${r.subtipo||''} ${r.descripcion?'· '+r.descripcion:''}</div>
-      <div class="pp-row"><b>${r._start!=null?eur(r._start):'—'}</b> <span style="color:var(--muted)">start</span>${(r.valor_subasta!=null&&r.valor_subasta!==r._start)?` · value ${eur(r.valor_subasta)}`:''}${disc}${r.precio_m2!=null?' · '+fmt.format(r.precio_m2)+' €/m²':''}</div>
+      <div class="pp-row"><b>${r._safe!=null?eur(r._safe):'—'}</b> <span style="color:var(--muted)">safe 70%</span>${r._floor!=null?` · ${eur(r._floor)} floor`:''}${r.valor_subasta!=null?` · value ${eur(r.valor_subasta)}`:''}${disc}</div>
       <div class="pp-row">${r._days!=null&&r._days>=0?r._days+' days':'closed'}</div>
       <div class="pp-links"><a href="${mapsUrl(r)}" target="_blank" rel="noopener">${isExact(r)?'Satellite ↗':'Maps (approx) ↗'}</a>
         ${r.detail_url?`<a href="${r.detail_url}" target="_blank" rel="noopener">BOE ↗</a>`:''}</div>`);
@@ -773,7 +789,7 @@ function addOptions(el,vals){const have=new Set([...el.options].map(o=>o.value))
 async function reloadData(){
   try{const r=await fetch('api/data');if(!r.ok)return false;const rows=await r.json();
     if(!Array.isArray(rows))return false;
-    DATA=rows;DATA.forEach(x=>{x._days=daysLeft(x.fecha_fin);x._disc=discount(x);x._start=startPrice(x);});
+    DATA=rows;DATA.forEach(x=>{x._days=daysLeft(x.fecha_fin);x._disc=discount(x);const s=startInfo(x);x._safe=s.safe;x._floor=s.floor;x._start=s.safe;});
     addOptions(document.getElementById('fProv'),uniq('provincia'));
     addOptions(document.getElementById('fTipo'),uniq('tipo_subasta'));
     addOptions(document.getElementById('fSubtipo'),uniq('subtipo'));
@@ -792,6 +808,8 @@ on('vMax','input',e=>{state.vMax=e.target.value===''?null:+e.target.value;render
 on('dMax','input',e=>{state.dMax=e.target.value===''?null:+e.target.value;render();});
 on('pm2Max','input',e=>{state.pm2Max=e.target.value===''?null:+e.target.value;render();});
 on('upMin','input',e=>{state.upMin=e.target.value===''?null:+e.target.value;render();});
+on('dayMin','input',e=>{state.dayMin=e.target.value===''?null:+e.target.value;render();});
+on('dayMax','input',e=>{state.dayMax=e.target.value===''?null:+e.target.value;render();});
 function chipGroup(id,key){const w=document.getElementById(id);
   const tog=c=>{const was=c.getAttribute('aria-pressed')==='true';
     w.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed','false'));
@@ -799,7 +817,7 @@ function chipGroup(id,key){const w=document.getElementById(id);
     if(key==='open')state.openOnly=!was;else state[key]=was?null:c.dataset.v;render();};
   w.addEventListener('click',e=>{const c=e.target.closest('.chip');if(c)tog(c);});
   w.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){const c=e.target.closest('.chip');if(c){e.preventDefault();tog(c);}}});}
-chipGroup('fHab','hab');chipGroup('fPos','pos');chipGroup('fOpen','open');
+chipGroup('fHab','hab');chipGroup('fOpen','open');
 
 document.getElementById('thead').addEventListener('click',e=>{
   const b=e.target.closest('button[data-sort]');if(!b)return;const s=b.dataset.sort;
@@ -1052,9 +1070,9 @@ buildScope();
 render();
 
 document.getElementById('reset').addEventListener('click',()=>{
-  Object.assign(state,{q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,pos:null,openOnly:true});
+  Object.assign(state,{q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,dayMin:null,dayMax:null,openOnly:true});
   document.getElementById('q').value='';
-  ['fTipo','fSubtipo','vMin','vMax','dMax','pm2Max','upMin'].forEach(id=>document.getElementById(id).value='');
+  ['fTipo','fSubtipo','vMin','vMax','dMax','pm2Max','upMin','dayMin','dayMax'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('fProv').selectedIndex=-1;
   document.querySelector('aside.rail').querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed','false'));
   const oc=document.querySelector('#fOpen .chip[data-v="open"]');if(oc)oc.setAttribute('aria-pressed','true');
