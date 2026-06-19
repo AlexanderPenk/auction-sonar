@@ -27,8 +27,8 @@ SELECT
     b.datos_registrales, b.cargas, b.latitud, b.longitud,
     b.superficie_m2, b.anio_construccion, b.uso_catastral,
     b.superficie_valoracion, b.mercado_eur_m2, b.valor_mercado_est, b.comps_n,
-    CASE WHEN b.superficie_m2 > 0 AND s.valor_subasta IS NOT NULL
-         THEN ROUND(s.valor_subasta / b.superficie_m2) END AS precio_m2,
+    CASE WHEN COALESCE(b.superficie_m2, b.superficie_valoracion) > 0 AND s.valor_subasta IS NOT NULL
+         THEN ROUND(s.valor_subasta / COALESCE(b.superficie_m2, b.superficie_valoracion)) END AS precio_m2,
     CASE WHEN b.valor_mercado_est > 0 AND s.valor_subasta IS NOT NULL
          THEN ROUND(100.0 * (b.valor_mercado_est - s.valor_subasta) / s.valor_subasta)
          END AS upside_pct,

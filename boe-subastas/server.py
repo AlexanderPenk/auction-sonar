@@ -22,8 +22,9 @@ import json
 import os
 import secrets
 import threading
+import time
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
@@ -38,8 +39,73 @@ security = HTTPBasic(auto_error=False)
 # ── Zustand des Crawl-Jobs (mit Persistenz) ─────────────────────────────
 _state_lock = threading.Lock()
 _state: dict = {"running": False, "cancel": False, "last_run": None, "last_error": None,
-                "last_summary": None, "last_scope": None}
+                "last_summary": None, "last_scope": None,
+                "geocoding": False, "geo": {"done": 0, "total": 0}}
 _LAST_RUN_PATH = config.ROOT / "data" / "last_run.json"
+_SCHEDULE_PATH = config.ROOT / "data" / "schedule.json"
+
+try:
+    from zoneinfo import ZoneInfo
+    _MADRID = ZoneInfo("Europe/Madrid")
+except Exception:  # noqa: BLE001
+    _MADRID = None
+
+_DEFAULT_SCHEDULE = {"enabled": False, "hour": 18, "minute": 0, "last_fired": None}
+
+
+def _load_schedule() -> dict:
+    try:
+        cfg = json.loads(_SCHEDULE_PATH.read_text("utf-8"))
+        return {**_DEFAULT_SCHEDULE, **cfg}
+    except Exception:  # noqa: BLE001
+        return dict(_DEFAULT_SCHEDULE)
+
+
+def _save_schedule(cfg: dict) -> None:
+    try:
+        _SCHEDULE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _SCHEDULE_PATH.write_text(json.dumps(cfg), "utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _now_madrid() -> dt.datetime:
+    return dt.datetime.now(_MADRID) if _MADRID else dt.datetime.now()
+
+
+def _next_run_iso(cfg: dict) -> str | None:
+    """Nächster Auslösezeitpunkt (Madrid) als ISO-String, oder None wenn aus."""
+    if not cfg.get("enabled"):
+        return None
+    now = _now_madrid()
+    target = now.replace(hour=int(cfg["hour"]), minute=int(cfg["minute"]),
+                         second=0, microsecond=0)
+    if target <= now:
+        target += dt.timedelta(days=1)
+    return target.isoformat(timespec="minutes")
+
+
+def _scheduler_loop() -> None:
+    """Prüft alle 30 s, ob der geplante tägliche Lauf fällig ist (Madrid-Zeit)."""
+    while True:
+        try:
+            cfg = _load_schedule()
+            if cfg.get("enabled"):
+                now = _now_madrid()
+                hhmm = now.strftime("%H:%M")
+                want = f"{int(cfg['hour']):02d}:{int(cfg['minute']):02d}"
+                today = now.date().isoformat()
+                if hhmm == want and cfg.get("last_fired") != today:
+                    with _state_lock:
+                        busy = _state["running"] or _state.get("geocoding")
+                    if not busy:
+                        cfg["last_fired"] = today
+                        _save_schedule(cfg)
+                        threading.Thread(target=_run_crawl, kwargs={"full": True},
+                                         daemon=True).start()
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(30)
 
 
 def _load_last_run() -> None:
@@ -99,6 +165,9 @@ def _startup() -> None:
             pass
     if os.getenv("CRAWL_ON_START", "0") == "1":
         _start_crawl_thread()
+    # Eigener Tages-Scheduler (Uhrzeit-basiert, Madrid-Zeit) — immer aktiv,
+    # feuert aber nur, wenn in schedule.json enabled=true gesetzt ist.
+    threading.Thread(target=_scheduler_loop, daemon=True).start()
 
 
 # ── Auth ────────────────────────────────────────────────────────────────
@@ -115,7 +184,7 @@ def auth(creds: HTTPBasicCredentials | None = Depends(security)) -> None:
 
 
 # ── Crawl-Ausführung ────────────────────────────────────────────────────
-def _run_crawl(force: bool = False) -> None:
+def _run_crawl(force: bool = False, full: bool = False) -> None:
     with _state_lock:
         if _state["running"]:
             return
@@ -125,7 +194,8 @@ def _run_crawl(force: bool = False) -> None:
     try:
         days = int(os.getenv("CRAWL_DAYS_BACK", "30"))
         # Begrenzung pro Lauf, damit ein Crawl nie ewig läuft. 0 = unbegrenzt.
-        lim = int(os.getenv("ENRICH_LIMIT", "40")) or None
+        # Ein geplanter Lauf (full=True) läuft serverseitig komplett durch.
+        lim = None if full else (int(os.getenv("ENRICH_LIMIT", "40")) or None)
         # PDFs standardmäßig AUS: teuerster Schritt, liefert kaum Mehrwert
         # (Fläche kommt aus dem Kataster). Bei Bedarf ENRICH_PDF=1 setzen.
         with_pdf = os.getenv("ENRICH_PDF", "0") == "1"
@@ -158,6 +228,42 @@ def _start_crawl_thread(force: bool = False) -> bool:
         if _state["running"]:
             return False
     threading.Thread(target=_run_crawl, kwargs={"force": force}, daemon=True).start()
+    return True
+
+
+def _run_geocode() -> None:
+    """Nur die Bienes ohne Koordinaten nachträglich verorten (ohne Crawl)."""
+    with _state_lock:
+        if _state["running"] or _state.get("geocoding"):
+            return
+        _state["geocoding"] = True
+        _state["cancel"] = False
+        _state["geo"] = {"done": 0, "total": 0}
+    try:
+        from geocode import geocode_pending
+
+        def _prog(done: int, total: int) -> None:
+            with _state_lock:
+                _state["geo"] = {"done": done, "total": total}
+
+        n = geocode_pending(limit=None, on_progress=_prog,
+                            should_cancel=lambda: _state.get("cancel"))
+        with _state_lock:
+            _state["geo"]["located"] = n
+        # n_rows/n_sub im last_run aktualisieren, damit die Karte frische Daten zieht
+    except Exception as exc:  # noqa: BLE001
+        with _state_lock:
+            _state["last_error"] = str(exc)
+    finally:
+        with _state_lock:
+            _state["geocoding"] = False
+
+
+def _start_geocode_thread() -> bool:
+    with _state_lock:
+        if _state["running"] or _state.get("geocoding"):
+            return False
+    threading.Thread(target=_run_geocode, daemon=True).start()
     return True
 
 
@@ -244,14 +350,60 @@ def api_crawl(force: int = 0, _: None = Depends(auth)) -> JSONResponse:
     return JSONResponse({"started": started, "force": bool(force)}, status_code=code)
 
 
+@app.post("/api/geocode")
+def api_geocode(_: None = Depends(auth)) -> JSONResponse:
+    """Bienes ohne Koordinaten nachträglich verorten (Photon/Nominatim)."""
+    started = _start_geocode_thread()
+    code = 202 if started else 409
+    return JSONResponse({"started": started}, status_code=code)
+
+
+@app.get("/api/schedule")
+def api_schedule_get(_: None = Depends(auth)) -> JSONResponse:
+    cfg = _load_schedule()
+    return JSONResponse({
+        "enabled": bool(cfg.get("enabled")),
+        "time": f"{int(cfg['hour']):02d}:{int(cfg['minute']):02d}",
+        "next_run": _next_run_iso(cfg),
+        "tz": "Europe/Madrid",
+    })
+
+
+@app.post("/api/schedule")
+async def api_schedule_set(request: Request, _: None = Depends(auth)) -> JSONResponse:
+    body = await request.json()
+    cfg = _load_schedule()
+    if "enabled" in body:
+        cfg["enabled"] = bool(body["enabled"])
+    t = body.get("time")
+    if isinstance(t, str) and ":" in t:
+        try:
+            hh, mm = t.split(":", 1)
+            hh, mm = int(hh), int(mm)
+            if 0 <= hh <= 23 and 0 <= mm <= 59:
+                cfg["hour"], cfg["minute"] = hh, mm
+            else:
+                return JSONResponse({"error": "time out of range"}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "bad time format, use HH:MM"}, status_code=400)
+    # bei Änderung neu „scharf schalten": last_fired zurücksetzen
+    cfg["last_fired"] = None
+    _save_schedule(cfg)
+    return JSONResponse({
+        "enabled": bool(cfg.get("enabled")),
+        "time": f"{int(cfg['hour']):02d}:{int(cfg['minute']):02d}",
+        "next_run": _next_run_iso(cfg),
+    })
+
+
 @app.post("/api/stop")
 def api_stop(_: None = Depends(auth)) -> JSONResponse:
-    """Laufenden Crawl kooperativ abbrechen (stoppt nach dem aktuellen Objekt)."""
+    """Laufenden Crawl ODER Geokodierung kooperativ abbrechen."""
     with _state_lock:
-        running = _state["running"]
-        if running:
+        active = _state["running"] or _state.get("geocoding")
+        if active:
             _state["cancel"] = True
-    return JSONResponse({"stopping": bool(running)})
+    return JSONResponse({"stopping": bool(active)})
 
 
 @app.post("/api/reset")

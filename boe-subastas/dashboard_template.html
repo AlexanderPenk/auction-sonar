@@ -100,6 +100,7 @@ tbody tr.data:hover td{background:#F7F8FA}
 tbody tr.data:focus-visible{outline:2px solid var(--bar);outline-offset:-2px}
 .muni{font-weight:600;white-space:nowrap}.prov{color:var(--muted)}
 .obj{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#3a414c}
+.obj-en{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11.5px;margin-top:2px}
 .tipo-tag{font-size:11px;color:#465063;white-space:nowrap}
 .disc{font-family:var(--mono);text-align:right;color:var(--seal-deep);font-weight:500}
 .disc.none{color:var(--muted);font-weight:400}
@@ -202,6 +203,11 @@ body.scope #scopeview{display:block}
 .srv-stale{color:var(--amber);font-weight:600}
 @keyframes pulse{50%{opacity:.35}}
 .srv-actions{display:flex;gap:9px;align-items:center}
+.srv-sched{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:12.5px;color:#3a414c}
+.srv-sched-on{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.srv-sched input[type=time]{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink)}
+.srv-sched-tz{color:var(--muted)}
+.srv-sched-next{color:var(--muted);font-size:12px}
 body.server-mode #scopeOffline{display:none}
 .scope-cli .cli-label{font-size:12px;color:var(--muted);margin-bottom:6px}
 .scope-cli pre{background:#16181D;color:#E6E8EC;border-radius:8px;padding:14px 16px;
@@ -341,11 +347,19 @@ body.scope .search,body.insights .search{visibility:hidden}
             <div class="srv-actions">
               <button class="btn" id="srvSave">Save scope to server</button>
               <button class="btn primary" id="srvCrawl">Crawl now</button>
+              <button class="btn" id="srvGeocode" title="Place map pins for auctions that still have no coordinates">Locate pending</button>
               <button class="btn danger" id="srvStopCrawl" hidden>Stop crawl</button>
               <label class="srv-force" title="Re-search every province even if crawled recently"><input type="checkbox" id="srvForce"> Force refresh</label>
               <span class="scope-saved" id="srvSaved" hidden>saved ✓</span>
               <button class="btn danger" id="srvReset" title="Delete all collected data and start clean">Reset data</button>
             </div>
+          </div>
+          <div class="srv-sched">
+            <label class="srv-sched-on" title="Run a full crawl automatically once a day"><input type="checkbox" id="schedOn"> Auto-crawl daily at</label>
+            <input type="time" id="schedTime" value="18:00" step="60">
+            <span class="srv-sched-tz">Madrid time</span>
+            <button class="btn" id="schedSave">Save schedule</button>
+            <span class="srv-sched-next" id="schedNext"></span>
           </div>
         </section>
 
@@ -681,10 +695,28 @@ function ups(r){
 function m2cell(r){
   const c=r.superficie_m2, t=r.superficie_valoracion;
   if(c==null&&t==null)return '—';
-  const diff=(c&&t)?Math.abs(c-t)/c>0.05:false;
-  const cat=c!=null?fmt.format(c):'—';
-  const tas=t!=null?`<span class="${diff?'m2-diff':''}">/ ${fmt.format(t)}</span>`:'';
-  return `${cat} ${tas}`;
+  if(c!=null){
+    const diff=(t&&Math.abs(c-t)/c>0.05);
+    return `${fmt.format(c)}${t!=null?` <span class="${diff?'m2-diff':''}" title="appraisal PDF">/ ${fmt.format(t)}</span>`:''}`;
+  }
+  return `<span title="from appraisal PDF — no cadastral surface">${fmt.format(t)} <span style="color:var(--muted)">PDF</span></span>`;
+}
+const SUBTIPO_EN={'Vivienda':'home','Piso':'flat','Casa':'house','Chalet':'detached house',
+  'Apartamento':'apartment','Dúplex':'duplex','Ático':'penthouse','Estudio':'studio',
+  'Garaje':'garage','Plaza de garaje':'parking space','Local':'commercial unit',
+  'Local comercial':'commercial unit','Trastero':'storage room','Nave':'warehouse',
+  'Nave industrial':'industrial unit','Suelo':'land','Terreno':'land','Solar':'building plot',
+  'Finca rústica':'rural land','Finca':'estate','Oficina':'office','Edificio':'building'};
+function enDesc(r){
+  const parts=[];
+  let t=r.subtipo&&SUBTIPO_EN[r.subtipo]?SUBTIPO_EN[r.subtipo]:(r.subtipo?r.subtipo.toLowerCase():'property');
+  if(r.uso_catastral&&/resid/i.test(r.uso_catastral)&&!/resid/i.test(t))t='residential '+t;
+  parts.push(t.charAt(0).toUpperCase()+t.slice(1));
+  const sup=r.superficie_m2!=null?r.superficie_m2:r.superficie_valoracion;
+  if(sup!=null)parts.push(fmt.format(sup)+' m²');
+  if(r.anio_construccion)parts.push('built '+r.anio_construccion);
+  if(r.municipio)parts.push(r.municipio+(r.provincia?` (${r.provincia})`:''));
+  return parts.join(' · ');
 }
 function bodyHtml(rows){
   if(!rows.length)return `<tr><td colspan="17"><div class="empty"><b>No results</b>Adjust or reset the filters.</div></td></tr>`;
@@ -697,12 +729,12 @@ function bodyHtml(rows){
     return `<tr class="data" tabindex="0" data-id="${r.sub_id}">
       <td class="num">${days}</td>
       <td><span class="muni">${r.municipio||'—'}</span><br><span class="prov">${r.provincia||''}</span></td>
-      <td><div class="obj" title="${(r.descripcion||'').replace(/"/g,'')}">${r.subtipo?`<b>${r.subtipo}</b> · `:''}${r.descripcion||r.direccion||''}</div></td>
+      <td><div class="obj" title="${(r.descripcion||'').replace(/"/g,'')}">${r.subtipo?`<b>${r.subtipo}</b> · `:''}${r.descripcion||r.direccion||''}</div><div class="obj-en">${enDesc(r)}</div></td>
       <td><span class="tipo-tag">${tipoShort(r.tipo_subasta)}</span></td>
       <td class="num">${eur(r.valor_subasta)}</td>
       <td class="num">${r._safe!=null?`${eur(r._safe)}<br><span style="color:var(--muted);font-size:11px">${r._floor!=null?eur(r._floor):''}</span>`:'—'}</td>
       ${disc}
-      <td class="num">${r.precio_m2!=null?fmt.format(r.precio_m2)+' €':'—'}</td>
+      <td class="num">${r.precio_m2!=null?(r.superficie_m2==null?'<span title="based on appraisal-PDF surface">~'+fmt.format(r.precio_m2)+' €</span>':fmt.format(r.precio_m2)+' €'):'—'}</td>
       <td class="num">${r.valor_mercado_est!=null?fmt.format(r.valor_mercado_est)+' €':'—'}</td>
       <td class="num">${ups(r)}</td>
       <td class="num">${m2cell(r)}</td>
@@ -759,6 +791,7 @@ function renderMap(rows){
     const disc=r._disc!=null?` · −${Math.round(r._disc*100)}%`:'';
     m.bindPopup(`<div class="pp-muni">${r.municipio||''}</div>
       <div class="pp-row">${r.subtipo||''} ${r.descripcion?'· '+r.descripcion:''}</div>
+      <div class="pp-row" style="color:var(--muted)">${enDesc(r)}</div>
       <div class="pp-row"><b>${r._safe!=null?eur(r._safe):'—'}</b> <span style="color:var(--muted)">safe 70%</span>${r._floor!=null?` · ${eur(r._floor)} floor`:''}${r.valor_subasta!=null?` · value ${eur(r.valor_subasta)}`:''}${disc}</div>
       <div class="pp-row">${r._days!=null&&r._days>=0?r._days+' days':'closed'}</div>
       <div class="pp-links"><a href="${mapsUrl(r)}" target="_blank" rel="noopener">${isExact(r)?'Satellite ↗':'Maps (approx) ↗'}</a>
@@ -936,6 +969,7 @@ buildScope();
   const statusEl=document.getElementById('srvStatus');
   const crawlBtn=document.getElementById('srvCrawl'), saveBtn=document.getElementById('srvSave');
   const stopBtn=document.getElementById('srvStopCrawl');
+  const geoBtnRef=document.getElementById('srvGeocode');
   let autoRun=false, poll=null, chunkStartPending=null;
   const PHASE={discover:'Finding auctions',enrich:'Fetching details',geocode:'Locating on map',
                catastro:'Land registry',idealista:'Market values',market:'Market estimate',done:'Done',idle:''};
@@ -971,18 +1005,20 @@ buildScope();
   let lastStatus=st;
   function paint(s){
     lastStatus=s;
+    const geob=!!s.geocoding;
     const busy=s.running;
-    statusEl.className='srv-status'+(busy?' busy':'');
+    statusEl.className='srv-status'+(busy||geob?' busy':'');
     const provs=(s.last_scope&&s.last_scope.focus_provincias)||[];
     const scopeTxt=provs.length?provs.join(', '):'all provinces';
     const last=s.last_run?new Date(s.last_run).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):null;
     const ago=s.days_since==null?'':(s.days_since<1?'today':s.days_since<2?'1 day ago':Math.round(s.days_since)+' days ago');
     const stale=s.days_since!=null&&s.days_since>=7;
-    const head=busy?(s.cancelling?'Stopping…':'Crawling…'):(autoRun?'Continuing…':'Idle');
+    const head=geob?(s.cancelling?'Stopping…':'Locating pins…'):busy?(s.cancelling?'Stopping…':'Crawling…'):(autoRun?'Continuing…':'Idle');
     let html=`<div><span class="dot"></span>${head} · ${s.subastas||0} auctions / ${s.rows||0} rows</div>`;
     html+=`<div class="srv-scope"><b>Search scope:</b> ${scopeSummary(currentScope())}</div>`;
     if(s.coverage&&s.coverage.bienes>0){const c=s.coverage;
       html+=`<div class="srv-sub">Coverage: ${c.located}/${c.bienes} located · ${c.surface}/${c.bienes} size · ${c.year}/${c.bienes} year · ${c.cadastral_ref}/${c.bienes} cadastral · ${c.market}/${c.bienes} market</div>`;}
+    if(geob&&s.geo&&s.geo.total)html+=`<div class="srv-sub">Locating pins: ${s.geo.done}/${s.geo.total} processed…</div>`;
     if(busy||autoRun)html+=bars(s);
     html+= last
       ? `<div class="srv-sub">Last read: ${last}${ago?` (${ago})`:''} · ${scopeTxt}</div>`
@@ -992,9 +1028,10 @@ buildScope();
     if(s.last_error)html+=`<div class="srv-stale">Error: ${s.last_error}</div>`;
     if(autoRun)html+=`<div class="srv-sub"><a href="#" id="srvStop">Stop auto-continue</a></div>`;
     statusEl.innerHTML=html;
-    crawlBtn.disabled=busy||autoRun;
-    if(stopBtn){stopBtn.hidden=!(busy||autoRun);stopBtn.disabled=!!s.cancelling;
-      stopBtn.textContent=s.cancelling?'Stopping…':'Stop crawl';}
+    crawlBtn.disabled=busy||autoRun||geob;
+    if(geoBtnRef){geoBtnRef.disabled=busy||autoRun||geob;geoBtnRef.textContent=geob?'Locating…':'Locate pending';}
+    if(stopBtn){stopBtn.hidden=!(busy||autoRun||geob);stopBtn.disabled=!!s.cancelling;
+      stopBtn.textContent=s.cancelling?'Stopping…':(geob?'Stop locating':'Stop crawl');}
     const stop=document.getElementById('srvStop');
     if(stop)stop.addEventListener('click',e=>{e.preventDefault();autoRun=false;paint(s);});
   }
@@ -1063,6 +1100,49 @@ buildScope();
       else{const j=await r.json().catch(()=>({}));alert('Reset failed: '+(j.error||r.status));}
     }catch(e){alert('Reset failed.');}
     resetBtn.disabled=false;
+  });
+  const geoBtn=document.getElementById('srvGeocode');
+  if(geoBtn)geoBtn.addEventListener('click',async()=>{
+    geoBtn.disabled=true;
+    try{
+      const r=await fetch('api/geocode',{method:'POST'});
+      if(r.status===409){alert('Busy — a crawl or locating run is already in progress.');geoBtn.disabled=false;return;}
+    }catch(e){alert('Could not start locating.');geoBtn.disabled=false;return;}
+    startPoll();
+    const t0=Date.now();
+    while(Date.now()-t0<900000){              // bis 15 Min auf Fertigstellung warten
+      let s=null;try{const rr=await fetch('api/status');if(rr.ok)s=await rr.json();}catch(e){}
+      if(s){paint(s);if(!s.geocoding)break;}
+      await new Promise(r=>setTimeout(r,2000));
+    }
+    await reloadData();                        // frische Koordinaten → Karte/Tabelle neu
+    geoBtn.disabled=false;
+  });
+
+  // Geplanter täglicher Crawl (Auto-crawl)
+  const schedOn=document.getElementById('schedOn'),schedTime=document.getElementById('schedTime'),
+        schedSave=document.getElementById('schedSave'),schedNext=document.getElementById('schedNext');
+  function paintSched(s){
+    if(!s)return;
+    if(schedOn)schedOn.checked=!!s.enabled;
+    if(s.time&&schedTime)schedTime.value=s.time;
+    if(!schedNext)return;
+    if(s.enabled&&s.next_run){
+      const d=new Date(s.next_run);
+      schedNext.textContent='next run: '+d.toLocaleString([],{weekday:'short',hour:'2-digit',minute:'2-digit'});
+    }else schedNext.textContent='off';
+  }
+  try{const r=await fetch('api/schedule');if(r.ok)paintSched(await r.json());}catch(e){}
+  if(schedSave)schedSave.addEventListener('click',async()=>{
+    schedSave.disabled=true;
+    try{
+      const r=await fetch('api/schedule',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({enabled:schedOn.checked,time:schedTime.value})});
+      if(r.ok){paintSched(await r.json());schedSave.textContent='Saved ✓';
+        setTimeout(()=>{schedSave.textContent='Save schedule';},1500);}
+      else alert('Could not save schedule.');
+    }catch(e){alert('Could not save schedule.');}
+    schedSave.disabled=false;
   });
   if(st.running){autoRun=true;startPoll();}
 })();
