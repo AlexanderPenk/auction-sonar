@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from pathlib import Path
 
 import pdfplumber
@@ -118,3 +119,63 @@ class PdfExtractor:
             for page in pdf.pages:
                 tables.extend(page.extract_tables() or [])
         return tables
+
+
+def backfill_superficie_pending(db_path: Path = config.DB_PATH, *, limit: int | None = None,
+                                on_progress=None, should_cancel=None) -> int:
+    """Feldbasierter PDF-Nachlese-Schritt (kein Neu-Crawl).
+
+    Für bereits gespeicherte Bienes OHNE jede Fläche (weder Kataster- noch
+    Gutachten-Fläche) werden die zugehörigen, bereits erfassten Valoración-PDF-URLs
+    nachgeladen und ``superficie_valoracion`` gesetzt. So bekommen auch bestehende
+    Objekte ihre Fläche, ohne den langsamen Erst-Scan zu wiederholen.
+
+    Gibt die Anzahl der Subastas zurück, für die eine Fläche ergänzt wurde.
+    """
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT b.sub_id AS sub_id FROM bienes b "
+            "WHERE b.superficie_valoracion IS NULL AND b.superficie_m2 IS NULL "
+            "AND EXISTS (SELECT 1 FROM documentos d "
+            "            WHERE d.sub_id = b.sub_id AND d.url IS NOT NULL)"
+        ).fetchall()
+        sub_ids = [r["sub_id"] for r in rows if r["sub_id"]]
+        if limit:
+            sub_ids = sub_ids[:limit]
+        total = len(sub_ids)
+        log.info("PDF-Backfill: %s Subastas ohne Fläche", total)
+        pdfx = PdfExtractor()
+        done = 0
+        for idx, sub_id in enumerate(sub_ids, 1):
+            if should_cancel and should_cancel():
+                log.info("PDF-Backfill abgebrochen")
+                break
+            try:
+                drows = conn.execute(
+                    "SELECT nombre, url, local_path, texto FROM documentos "
+                    "WHERE sub_id = ? AND url IS NOT NULL", (sub_id,)).fetchall()
+                docs = [Documento(nombre=d["nombre"], url=d["url"],
+                                  local_path=d["local_path"], texto=d["texto"])
+                        for d in drows]
+                val_docs = [d for d in docs if is_valoracion(d)]
+                for d in val_docs:
+                    if not d.texto:
+                        pdfx.process(d)            # lädt + extrahiert Text
+                sup = superficie_from_docs(val_docs)
+                if sup:
+                    conn.execute(
+                        "UPDATE bienes SET superficie_valoracion = ? "
+                        "WHERE sub_id = ? AND superficie_valoracion IS NULL",
+                        (sup, sub_id))
+                    conn.commit()
+                    done += 1
+            except Exception as exc:  # noqa: BLE001 — ein kaputtes PDF stoppt den Lauf nicht
+                log.warning("PDF-Backfill fehlgeschlagen %s: %s", sub_id, exc)
+            if on_progress:
+                on_progress(idx, total)
+        log.info("PDF-Backfill: %s Subastas mit Fläche ergänzt", done)
+        return done
+    finally:
+        conn.close()

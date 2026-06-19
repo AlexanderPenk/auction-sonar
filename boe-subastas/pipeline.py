@@ -278,10 +278,11 @@ def crawl_now(days_back: int = 30, limit: int | None = None, *, force: bool = Fa
         _progress("done", 0, 0, "")
         return summary
 
-    for name, fn in (("geocode", _step_geocode),
-                     ("catastro", _step_catastro),
-                     ("idealista", _step_idealista),
-                     ("market", _step_market_local)):
+    steps = [("geocode", _step_geocode), ("catastro", _step_catastro)]
+    if with_pdf:
+        steps.append(("pdf", _step_pdf_backfill))
+    steps += [("idealista", _step_idealista), ("market", _step_market_local)]
+    for name, fn in steps:
         if should_cancel and should_cancel():
             summary["cancelled"] = True
             break
@@ -303,6 +304,11 @@ def _step_catastro(limit):
 def _step_geocode(limit):
     from geocode import geocode_pending
     return geocode_pending(limit=limit)
+
+
+def _step_pdf_backfill(limit):
+    from pdf_extract import backfill_superficie_pending
+    return backfill_superficie_pending(limit=limit)
 
 
 def _step_idealista(limit):

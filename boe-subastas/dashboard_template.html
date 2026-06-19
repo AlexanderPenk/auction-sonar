@@ -348,6 +348,7 @@ body.scope .search,body.insights .search{visibility:hidden}
               <button class="btn" id="srvSave">Save scope to server</button>
               <button class="btn primary" id="srvCrawl">Crawl now</button>
               <button class="btn" id="srvGeocode" title="Place map pins for auctions that still have no coordinates">Locate pending</button>
+              <button class="btn" id="srvPdf" title="Read the appraisal PDFs to fill missing floor area (no re-crawl)">Read PDFs</button>
               <button class="btn danger" id="srvStopCrawl" hidden>Stop crawl</button>
               <label class="srv-force" title="Re-search every province even if crawled recently"><input type="checkbox" id="srvForce"> Force refresh</label>
               <span class="scope-saved" id="srvSaved" hidden>saved ✓</span>
@@ -970,6 +971,7 @@ buildScope();
   const crawlBtn=document.getElementById('srvCrawl'), saveBtn=document.getElementById('srvSave');
   const stopBtn=document.getElementById('srvStopCrawl');
   const geoBtnRef=document.getElementById('srvGeocode');
+  const pdfBtnRef=document.getElementById('srvPdf');
   let autoRun=false, poll=null, chunkStartPending=null;
   const PHASE={discover:'Finding auctions',enrich:'Fetching details',geocode:'Locating on map',
                catastro:'Land registry',idealista:'Market values',market:'Market estimate',done:'Done',idle:''};
@@ -1006,19 +1008,21 @@ buildScope();
   function paint(s){
     lastStatus=s;
     const geob=!!s.geocoding;
+    const pdfb=!!s.pdfing;
     const busy=s.running;
-    statusEl.className='srv-status'+(busy||geob?' busy':'');
+    statusEl.className='srv-status'+(busy||geob||pdfb?' busy':'');
     const provs=(s.last_scope&&s.last_scope.focus_provincias)||[];
     const scopeTxt=provs.length?provs.join(', '):'all provinces';
     const last=s.last_run?new Date(s.last_run).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):null;
     const ago=s.days_since==null?'':(s.days_since<1?'today':s.days_since<2?'1 day ago':Math.round(s.days_since)+' days ago');
     const stale=s.days_since!=null&&s.days_since>=7;
-    const head=geob?(s.cancelling?'Stopping…':'Locating pins…'):busy?(s.cancelling?'Stopping…':'Crawling…'):(autoRun?'Continuing…':'Idle');
+    const head=pdfb?'Reading PDFs…':geob?(s.cancelling?'Stopping…':'Locating pins…'):busy?(s.cancelling?'Stopping…':'Crawling…'):(autoRun?'Continuing…':'Idle');
     let html=`<div><span class="dot"></span>${head} · ${s.subastas||0} auctions / ${s.rows||0} rows</div>`;
     html+=`<div class="srv-scope"><b>Search scope:</b> ${scopeSummary(currentScope())}</div>`;
     if(s.coverage&&s.coverage.bienes>0){const c=s.coverage;
       html+=`<div class="srv-sub">Coverage: ${c.located}/${c.bienes} located · ${c.surface}/${c.bienes} size · ${c.year}/${c.bienes} year · ${c.cadastral_ref}/${c.bienes} cadastral · ${c.market}/${c.bienes} market</div>`;}
     if(geob&&s.geo&&s.geo.total)html+=`<div class="srv-sub">Locating pins: ${s.geo.done}/${s.geo.total} processed…</div>`;
+    if(pdfb&&s.pdf&&s.pdf.total)html+=`<div class="srv-sub">Reading PDFs: ${s.pdf.done}/${s.pdf.total} processed…</div>`;
     if(busy||autoRun)html+=bars(s);
     html+= last
       ? `<div class="srv-sub">Last read: ${last}${ago?` (${ago})`:''} · ${scopeTxt}</div>`
@@ -1028,10 +1032,11 @@ buildScope();
     if(s.last_error)html+=`<div class="srv-stale">Error: ${s.last_error}</div>`;
     if(autoRun)html+=`<div class="srv-sub"><a href="#" id="srvStop">Stop auto-continue</a></div>`;
     statusEl.innerHTML=html;
-    crawlBtn.disabled=busy||autoRun||geob;
-    if(geoBtnRef){geoBtnRef.disabled=busy||autoRun||geob;geoBtnRef.textContent=geob?'Locating…':'Locate pending';}
-    if(stopBtn){stopBtn.hidden=!(busy||autoRun||geob);stopBtn.disabled=!!s.cancelling;
-      stopBtn.textContent=s.cancelling?'Stopping…':(geob?'Stop locating':'Stop crawl');}
+    crawlBtn.disabled=busy||autoRun||geob||pdfb;
+    if(geoBtnRef){geoBtnRef.disabled=busy||autoRun||geob||pdfb;geoBtnRef.textContent=geob?'Locating…':'Locate pending';}
+    if(pdfBtnRef){pdfBtnRef.disabled=busy||autoRun||geob||pdfb;pdfBtnRef.textContent=pdfb?'Reading…':'Read PDFs';}
+    if(stopBtn){stopBtn.hidden=!(busy||autoRun||geob||pdfb);stopBtn.disabled=!!s.cancelling;
+      stopBtn.textContent=s.cancelling?'Stopping…':(geob?'Stop locating':pdfb?'Stop reading':'Stop crawl');}
     const stop=document.getElementById('srvStop');
     if(stop)stop.addEventListener('click',e=>{e.preventDefault();autoRun=false;paint(s);});
   }
@@ -1117,6 +1122,24 @@ buildScope();
     }
     await reloadData();                        // frische Koordinaten → Karte/Tabelle neu
     geoBtn.disabled=false;
+  });
+
+  const pdfBtn=document.getElementById('srvPdf');
+  if(pdfBtn)pdfBtn.addEventListener('click',async()=>{
+    pdfBtn.disabled=true;
+    try{
+      const r=await fetch('api/pdf-backfill',{method:'POST'});
+      if(r.status===409){alert('Busy — a crawl or another task is already in progress.');pdfBtn.disabled=false;return;}
+    }catch(e){alert('Could not start reading PDFs.');pdfBtn.disabled=false;return;}
+    startPoll();
+    const t0=Date.now();
+    while(Date.now()-t0<1800000){             // bis 30 Min auf Fertigstellung warten
+      let s=null;try{const rr=await fetch('api/status');if(rr.ok)s=await rr.json();}catch(e){}
+      if(s){paint(s);if(!s.pdfing)break;}
+      await new Promise(r=>setTimeout(r,2000));
+    }
+    await reloadData();                        // frische Flächen → €/m²/Market neu
+    pdfBtn.disabled=false;
   });
 
   // Geplanter täglicher Crawl (Auto-crawl)

@@ -40,7 +40,8 @@ security = HTTPBasic(auto_error=False)
 _state_lock = threading.Lock()
 _state: dict = {"running": False, "cancel": False, "last_run": None, "last_error": None,
                 "last_summary": None, "last_scope": None,
-                "geocoding": False, "geo": {"done": 0, "total": 0}}
+                "geocoding": False, "geo": {"done": 0, "total": 0},
+                "pdfing": False, "pdf": {"done": 0, "total": 0}}
 _LAST_RUN_PATH = config.ROOT / "data" / "last_run.json"
 _SCHEDULE_PATH = config.ROOT / "data" / "schedule.json"
 
@@ -97,7 +98,7 @@ def _scheduler_loop() -> None:
                 today = now.date().isoformat()
                 if hhmm == want and cfg.get("last_fired") != today:
                     with _state_lock:
-                        busy = _state["running"] or _state.get("geocoding")
+                        busy = _state["running"] or _state.get("geocoding") or _state.get("pdfing")
                     if not busy:
                         cfg["last_fired"] = today
                         _save_schedule(cfg)
@@ -267,6 +268,41 @@ def _start_geocode_thread() -> bool:
     return True
 
 
+def _run_pdf_backfill() -> None:
+    """Valoración-PDFs für Bienes ohne Fläche nachlesen (ohne Crawl)."""
+    with _state_lock:
+        if _state["running"] or _state.get("geocoding") or _state.get("pdfing"):
+            return
+        _state["pdfing"] = True
+        _state["cancel"] = False
+        _state["pdf"] = {"done": 0, "total": 0}
+    try:
+        from pdf_extract import backfill_superficie_pending
+
+        def _prog(done: int, total: int) -> None:
+            with _state_lock:
+                _state["pdf"] = {"done": done, "total": total}
+
+        n = backfill_superficie_pending(limit=None, on_progress=_prog,
+                                        should_cancel=lambda: _state.get("cancel"))
+        with _state_lock:
+            _state["pdf"]["filled"] = n
+    except Exception as exc:  # noqa: BLE001
+        with _state_lock:
+            _state["last_error"] = str(exc)
+    finally:
+        with _state_lock:
+            _state["pdfing"] = False
+
+
+def _start_pdf_thread() -> bool:
+    with _state_lock:
+        if _state["running"] or _state.get("geocoding") or _state.get("pdfing"):
+            return False
+    threading.Thread(target=_run_pdf_backfill, daemon=True).start()
+    return True
+
+
 # ── Routen ──────────────────────────────────────────────────────────────
 @app.get("/healthz")
 def healthz() -> dict:
@@ -354,6 +390,14 @@ def api_crawl(force: int = 0, _: None = Depends(auth)) -> JSONResponse:
 def api_geocode(_: None = Depends(auth)) -> JSONResponse:
     """Bienes ohne Koordinaten nachträglich verorten (Photon/Nominatim)."""
     started = _start_geocode_thread()
+    code = 202 if started else 409
+    return JSONResponse({"started": started}, status_code=code)
+
+
+@app.post("/api/pdf-backfill")
+def api_pdf_backfill(_: None = Depends(auth)) -> JSONResponse:
+    """Valoración-PDFs für Bienes ohne Fläche nachlesen (ohne Crawl)."""
+    started = _start_pdf_thread()
     code = 202 if started else 409
     return JSONResponse({"started": started}, status_code=code)
 
