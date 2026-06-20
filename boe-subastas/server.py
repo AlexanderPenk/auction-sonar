@@ -44,6 +44,22 @@ _state: dict = {"running": False, "cancel": False, "last_run": None, "last_error
                 "pdfing": False, "pdf": {"done": 0, "total": 0}}
 _LAST_RUN_PATH = config.ROOT / "data" / "last_run.json"
 _SCHEDULE_PATH = config.ROOT / "data" / "schedule.json"
+_FAV_PATH = config.ROOT / "data" / "favorites.json"
+
+
+def _load_favorites() -> set:
+    try:
+        return set(json.loads(_FAV_PATH.read_text("utf-8")))
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _save_favorites(favs: set) -> None:
+    try:
+        _FAV_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _FAV_PATH.write_text(json.dumps(sorted(favs)), "utf-8")
+    except Exception:  # noqa: BLE001
+        pass
 
 try:
     from zoneinfo import ZoneInfo
@@ -400,6 +416,26 @@ def api_pdf_backfill(_: None = Depends(auth)) -> JSONResponse:
     started = _start_pdf_thread()
     code = 202 if started else 409
     return JSONResponse({"started": started}, status_code=code)
+
+
+@app.get("/api/favorites")
+def api_favorites_get(_: None = Depends(auth)) -> JSONResponse:
+    return JSONResponse({"favorites": sorted(_load_favorites())})
+
+
+@app.post("/api/favorites")
+async def api_favorites_set(request: Request, _: None = Depends(auth)) -> JSONResponse:
+    body = await request.json()
+    sub_id = str(body.get("sub_id") or "").strip()
+    if not sub_id:
+        return JSONResponse({"error": "sub_id required"}, status_code=400)
+    favs = _load_favorites()
+    if body.get("fav"):
+        favs.add(sub_id)
+    else:
+        favs.discard(sub_id)
+    _save_favorites(favs)
+    return JSONResponse({"favorites": sorted(favs)})
 
 
 @app.get("/api/schedule")

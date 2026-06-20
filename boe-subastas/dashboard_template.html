@@ -101,6 +101,13 @@ tbody tr.data:focus-visible{outline:2px solid var(--bar);outline-offset:-2px}
 .muni{font-weight:600;white-space:nowrap}.prov{color:var(--muted)}
 .obj{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#3a414c}
 .obj-en{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11.5px;margin-top:2px}
+.fav-h{width:30px}
+.fav-c{text-align:center}
+.star{background:none;border:0;cursor:pointer;font-size:16px;line-height:1;color:#c9c6c0;padding:2px 4px;transition:color .12s,transform .12s}
+.star:hover{transform:scale(1.18)}
+.star.on{color:#e6a700}
+.pp-fav{background:none;border:0;cursor:pointer;font-size:15px;color:#c9c6c0;padding:0}
+.pp-fav.on{color:#e6a700}
 .tipo-tag{font-size:11px;color:#465063;white-space:nowrap}
 .disc{font-family:var(--mono);text-align:right;color:var(--seal-deep);font-weight:500}
 .disc.none{color:var(--muted);font-weight:400}
@@ -308,6 +315,7 @@ body.scope .search,body.insights .search{visibility:hidden}
     <div class="field"><label>Days until auction</label>
       <div class="minmax"><input id="dayMin" type="number" placeholder="min"><span>–</span><input id="dayMax" type="number" placeholder="max"></div></div>
     <div class="field"><label>Deadline</label><div class="chips" id="fOpen"><span class="chip" role="button" tabindex="0" data-v="open" aria-pressed="true">Open only</span></div></div>
+    <div class="field"><label>Favourites</label><div class="chips" id="fFav"><span class="chip" role="button" tabindex="0" data-v="fav" aria-pressed="false">★ Favourites only</span></div></div>
     <button class="reset" id="reset">Reset filters</button>
   </aside>
 
@@ -315,6 +323,7 @@ body.scope .search,body.insights .search{visibility:hidden}
     <div class="tablewrap">
       <table class="grid">
         <thead><tr id="thead">
+          <th class="fav-h" title="Favourites"></th>
           <th class="r"><button data-sort="days" data-active="1">Days<span class="arr">↑</span></button></th>
           <th><button data-sort="place">Location<span class="arr">↕</span></button></th>
           <th>Property</th>
@@ -622,8 +631,18 @@ const mapsUrl=r=>{
 const isExact=r=>r.referencia_catastral&&r.latitud!=null;
 DATA.forEach(r=>{r._days=daysLeft(r.fecha_fin);r._disc=discount(r);const s=startInfo(r);r._safe=s.safe;r._floor=s.floor;r._start=s.safe;});
 
-const state={q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,dayMin:null,dayMax:null,
+const state={q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,dayMin:null,dayMax:null,favOnly:false,
   openOnly:true,sort:'days',dir:1,openRow:null,view:'tabla'};
+let FAVS=new Set();
+function isFav(r){return r&&FAVS.has(r.sub_id);}
+async function toggleFav(sub_id){
+  const on=!FAVS.has(sub_id);
+  if(on)FAVS.add(sub_id);else FAVS.delete(sub_id);
+  try{await fetch('api/favorites',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sub_id,fav:on})});}catch(e){}
+  render();
+}
+window.toggleFav=toggleFav;
 
 const uniq=k=>[...new Set(DATA.map(r=>r[k]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
 const fill=(el,vals)=>vals.forEach(v=>{const o=document.createElement('option');o.value=o.textContent=v;el.appendChild(o);});
@@ -647,6 +666,7 @@ function visible(){
     if(state.dayMin!=null&&(r._days==null||r._days<state.dayMin))return false;
     if(state.dayMax!=null&&(r._days==null||r._days>state.dayMax))return false;
     if(state.openOnly&&isClosed(r))return false;
+    if(state.favOnly&&!FAVS.has(r.sub_id))return false;
     return true;
   });
 }
@@ -660,7 +680,7 @@ const occ=p=>p&&p!=='No consta'&&!/^no\b/i.test(p)&&!/libre/i.test(p);
 function detailRow(r){
   const row=(k,v)=>v?`<dl><dt>${k}</dt><dd>${v}</dd></dl>`:'';
   const docs=(r.documentos||[]).map(d=>`<a href="${d.url}" target="_blank" rel="noopener">📄 ${d.nombre||'document'}</a>`).join('');
-  return `<tr class="detail"><td colspan="17"><div class="detailgrid" onclick="event.stopPropagation()">
+  return `<tr class="detail"><td colspan="18"><div class="detailgrid" onclick="event.stopPropagation()">
     ${row('Description',r.descripcion)}
     ${row('Address',r.direccion)}
     ${row('Postcode · Town',[r.codigo_postal,r.municipio].filter(Boolean).join(' · '))}
@@ -702,6 +722,34 @@ function m2cell(r){
   }
   return `<span title="from appraisal PDF — no cadastral surface">${fmt.format(t)} <span style="color:var(--muted)">PDF</span></span>`;
 }
+const ES_EN=[
+  [/\bvivienda unifamiliar\b/g,'single-family home'],[/\bfinca registral\b/g,'land-registry plot'],
+  [/\bnúmero de orden\b/g,'order number'],[/\bde orden\b/g,'of order'],
+  [/\breferencia catastral\b/g,'cadastral ref'],[/\bque consta en el edicto\b/g,'as stated in the notice'],
+  [/\bpleno dominio\b/g,'full ownership'],[/\bnuda propiedad\b/g,'bare ownership'],
+  [/\bmetros cuadrados\b/g,'m²'],[/\bplanta baja\b/g,'ground floor'],[/\bplaza de garaje\b/g,'parking space'],
+  [/\bvivienda\b/g,'dwelling'],[/\burbana\b/g,'urban'],[/\brústica\b/g,'rural'],[/\bfinca\b/g,'plot'],
+  [/\bnúmero\b/g,'no.'],[/\bplanta\b/g,'floor'],[/\bpiso\b/g,'flat'],[/\bsit[oa]\b/g,'located'],
+  [/\bsituad[oa]\b/g,'located'],[/\bcalle\b/g,'street'],[/\bavenida\b/g,'avenue'],[/\bavda\b/g,'avenue'],
+  [/\bbarrio\b/g,'neighbourhood'],[/\bdescripción\b/g,'description'],[/\binscrit[oa]\b/g,'registered'],
+  [/\bregistro\b/g,'registry'],[/\busufructo\b/g,'usufruct'],[/\bsuperficie\b/g,'area'],
+  [/\bcompuest[oa] de\b/g,'comprising'],[/\bdormitorios?\b/g,'bedrooms'],[/\bgaraje\b/g,'garage'],
+  [/\btrastero\b/g,'storage room'],[/\blocal\b/g,'commercial unit'],[/\bnave\b/g,'warehouse'],
+  [/\bsuelo\b/g,'land'],[/\bterreno\b/g,'land'],[/\bderecho\b/g,'right'],[/\bedificio\b/g,'building'],
+  [/\bportal\b/g,'entrance'],[/\bescalera\b/g,'staircase'],[/\bsótano\b/g,'basement'],
+  [/\bático\b/g,'penthouse'],[/\bdúplex\b/g,'duplex'],
+  [/\bcon\b/g,'with'],[/\bsin\b/g,'without'],[/\bdel\b/g,'of the'],[/\bde la\b/g,'of the'],
+  [/\bsegún\b/g,'per'],[/\bsobre\b/g,'on'],[/\b y \b/g,' and '],[/\b en \b/g,' in '],
+  [/\b(el|la|los|las)\b/g,'the'],[/\b de \b/g,' of '],
+  [/\bvivie\.\.\.$/g,'dwelling…']
+];
+function esToEn(text){
+  if(!text)return '';
+  let s=' '+(''+text).toLowerCase()+' ';
+  for(const [re,en] of ES_EN)s=s.replace(re,en);
+  s=s.replace(/\s+/g,' ').trim();
+  return s?s.charAt(0).toUpperCase()+s.slice(1):'';
+}
 const SUBTIPO_EN={'Vivienda':'home','Piso':'flat','Casa':'house','Chalet':'detached house',
   'Apartamento':'apartment','Dúplex':'duplex','Ático':'penthouse','Estudio':'studio',
   'Garaje':'garage','Plaza de garaje':'parking space','Local':'commercial unit',
@@ -720,7 +768,7 @@ function enDesc(r){
   return parts.join(' · ');
 }
 function bodyHtml(rows){
-  if(!rows.length)return `<tr><td colspan="17"><div class="empty"><b>No results</b>Adjust or reset the filters.</div></td></tr>`;
+  if(!rows.length)return `<tr><td colspan="18"><div class="empty"><b>No results</b>Adjust or reset the filters.</div></td></tr>`;
   return rows.map(r=>{
     const d=r._days, days=d==null?`<span class="days closed">—</span>`:d<0?`<span class="days closed">closed</span>`:`<span class="days ${d<=7?'soon':''}">${d} d</span>`;
     const disc=r._disc!=null?`<td class="disc">−${Math.round(r._disc*100)}%</td>`:`<td class="disc none">—</td>`;
@@ -728,9 +776,10 @@ function bodyHtml(rows){
     const pos=r.situacion_posesoria?`<span class="pos ${occ(r.situacion_posesoria)?'occ':''}" title="${r.situacion_posesoria}">${r.situacion_posesoria.length>20?r.situacion_posesoria.slice(0,19)+'…':r.situacion_posesoria}</span>`:'—';
     const open=state.openRow===r.sub_id;
     return `<tr class="data" tabindex="0" data-id="${r.sub_id}">
+      <td class="fav-c"><button class="star${isFav(r)?' on':''}" data-fav="${r.sub_id}" title="Toggle favourite" aria-label="Toggle favourite">${isFav(r)?'★':'☆'}</button></td>
       <td class="num">${days}</td>
-      <td><span class="muni">${r.municipio||'—'}</span><br><span class="prov">${r.provincia||''}</span></td>
-      <td><div class="obj" title="${(r.descripcion||'').replace(/"/g,'')}">${r.subtipo?`<b>${r.subtipo}</b> · `:''}${r.descripcion||r.direccion||''}</div><div class="obj-en">${enDesc(r)}</div></td>
+      <td><span class="muni">${r.municipio||'—'}</span><br><span class="prov">${r.provincia||''}${r.codigo_postal?' · '+r.codigo_postal:''}</span></td>
+      <td><div class="obj" title="${(r.descripcion||'').replace(/"/g,'')}">${r.subtipo?`<b>${SUBTIPO_EN[r.subtipo]?SUBTIPO_EN[r.subtipo].replace(/^./,c=>c.toUpperCase()):r.subtipo}</b> · `:''}${esToEn(r.descripcion)||r.direccion||''}</div><div class="obj-en">${enDesc(r)}</div></td>
       <td><span class="tipo-tag">${tipoShort(r.tipo_subasta)}</span></td>
       <td class="num">${eur(r.valor_subasta)}</td>
       <td class="num">${r._safe!=null?`${eur(r._safe)}<br><span style="color:var(--muted);font-size:11px">${r._floor!=null?eur(r._floor):''}</span>`:'—'}</td>
@@ -790,7 +839,7 @@ function renderMap(rows){
     if(r.latitud==null||r.longitud==null)return;
     const m=L.marker([r.latitud,r.longitud]).addTo(layer);
     const disc=r._disc!=null?` · −${Math.round(r._disc*100)}%`:'';
-    m.bindPopup(`<div class="pp-muni">${r.municipio||''}</div>
+    m.bindPopup(`<div class="pp-muni"><button class="pp-fav${isFav(r)?' on':''}" onclick="toggleFav('${r.sub_id}')" title="Toggle favourite">${isFav(r)?'★':'☆'}</button> ${r.municipio||''}</div>
       <div class="pp-row">${r.subtipo||''} ${r.descripcion?'· '+r.descripcion:''}</div>
       <div class="pp-row" style="color:var(--muted)">${enDesc(r)}</div>
       <div class="pp-row"><b>${r._safe!=null?eur(r._safe):'—'}</b> <span style="color:var(--muted)">safe 70%</span>${r._floor!=null?` · ${eur(r._floor)} floor`:''}${r.valor_subasta!=null?` · value ${eur(r.valor_subasta)}`:''}${disc}</div>
@@ -848,10 +897,10 @@ function chipGroup(id,key){const w=document.getElementById(id);
   const tog=c=>{const was=c.getAttribute('aria-pressed')==='true';
     w.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed','false'));
     c.setAttribute('aria-pressed',was?'false':'true');
-    if(key==='open')state.openOnly=!was;else state[key]=was?null:c.dataset.v;render();};
+    if(key==='open')state.openOnly=!was;else if(key==='fav')state.favOnly=!was;else state[key]=was?null:c.dataset.v;render();};
   w.addEventListener('click',e=>{const c=e.target.closest('.chip');if(c)tog(c);});
   w.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){const c=e.target.closest('.chip');if(c){e.preventDefault();tog(c);}}});}
-chipGroup('fHab','hab');chipGroup('fOpen','open');
+chipGroup('fHab','hab');chipGroup('fOpen','open');chipGroup('fFav','fav');
 
 document.getElementById('thead').addEventListener('click',e=>{
   const b=e.target.closest('button[data-sort]');if(!b)return;const s=b.dataset.sort;
@@ -859,6 +908,8 @@ document.getElementById('thead').addEventListener('click',e=>{
   document.querySelectorAll('#thead th').forEach(th=>{th.dataset.active='0';const a=th.querySelector('.arr');if(a)a.textContent='↕';});
   const th=b.closest('th');th.dataset.active='1';const a=b.querySelector('.arr');if(a)a.textContent=state.dir>0?'↑':'↓';render();});
 document.getElementById('tbody').addEventListener('click',e=>{
+  const star=e.target.closest('.star');
+  if(star){e.stopPropagation();toggleFav(star.dataset.fav);return;}
   const tr=e.target.closest('tr.data');if(!tr)return;
   state.openRow=state.openRow===tr.dataset.id?null:tr.dataset.id;render();});
 document.getElementById('tbody').addEventListener('keydown',e=>{
@@ -1156,6 +1207,7 @@ buildScope();
     }else schedNext.textContent='off';
   }
   try{const r=await fetch('api/schedule');if(r.ok)paintSched(await r.json());}catch(e){}
+  try{const r=await fetch('api/favorites');if(r.ok){FAVS=new Set((await r.json()).favorites||[]);render();}}catch(e){}
   if(schedSave)schedSave.addEventListener('click',async()=>{
     schedSave.disabled=true;
     try{
@@ -1173,7 +1225,7 @@ buildScope();
 render();
 
 document.getElementById('reset').addEventListener('click',()=>{
-  Object.assign(state,{q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,dayMin:null,dayMax:null,openOnly:true});
+  Object.assign(state,{q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,dayMin:null,dayMax:null,favOnly:false,openOnly:true});
   document.getElementById('q').value='';
   ['fTipo','fSubtipo','vMin','vMax','dMax','pm2Max','upMin','dayMin','dayMax'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('fProv').selectedIndex=-1;

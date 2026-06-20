@@ -27,6 +27,30 @@ import config
 
 log = logging.getLogger("catastro")
 
+# Spanische Katasterreferenz: 20-stellig (volle RC inkl. Cargo) bzw. 14-stellig
+# (Parzelle). Lookarounds verhindern Treffer innerhalb längerer Codes.
+_RC20 = re.compile(r"(?<![0-9A-Z])(\d{7}[A-Z]{2}\d{4}[A-Z]\d{4}[A-Z]{2})(?![0-9A-Z])")
+_RC14 = re.compile(r"(?<![0-9A-Z])(\d{7}[A-Z]{2}\d{4}[A-Z])(?![0-9A-Z])")
+
+
+def extract_rc(*texts: str | None) -> str | None:
+    """Zieht eine Katasterreferenz aus Freitext (z. B. der Objektbeschreibung).
+
+    Bevorzugt die volle 20-stellige RC; fällt sonst auf die 14-stellige Parzelle
+    zurück. Gibt None zurück, wenn nichts Plausibles gefunden wird.
+    """
+    for text in texts:
+        if text:
+            m = _RC20.search(text.upper())
+            if m:
+                return m.group(1)
+    for text in texts:
+        if text:
+            m = _RC14.search(text.upper())
+            if m:
+                return m.group(1)
+    return None
+
 BASE = "https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC"
 DNPRC = BASE + "/OVCCallejero.asmx/Consulta_DNPRC"
 CPMRC = BASE + "/OVCCoordenadas.asmx/Consulta_CPMRC"
@@ -121,6 +145,20 @@ def enrich_pending(db_path: Path = config.DB_PATH, *, limit: int | None = None,
     """Alle Bienes mit RC, denen Fläche/Baujahr oder Koordinaten fehlen, anreichern."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+    # RC aus Beschreibung/Adresse nachtragen, wo noch keiner gesetzt ist —
+    # so erreichen wir auch Objekte, deren RC nur im Freitext steht.
+    filled_rc = 0
+    for r in conn.execute(
+            "SELECT id, descripcion, direccion FROM bienes "
+            "WHERE referencia_catastral IS NULL OR referencia_catastral = ''").fetchall():
+        rc = extract_rc(r["descripcion"], r["direccion"])
+        if rc:
+            conn.execute("UPDATE bienes SET referencia_catastral = ? WHERE id = ?",
+                         (rc, r["id"]))
+            filled_rc += 1
+    if filled_rc:
+        conn.commit()
+        log.info("Catastro: %s RC aus Beschreibung ergänzt", filled_rc)
     sql = ("SELECT id, referencia_catastral, latitud, superficie_m2 FROM bienes "
            "WHERE referencia_catastral IS NOT NULL "
            "AND (superficie_m2 IS NULL OR latitud IS NULL)")
