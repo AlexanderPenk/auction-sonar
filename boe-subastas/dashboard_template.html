@@ -118,6 +118,11 @@ tbody tr.data:focus-visible{outline:2px solid var(--bar);outline-offset:-2px}
 .yn{font-size:11px;padding:2px 7px;border-radius:99px;background:var(--neutral-bg)}
 .yn.no{background:var(--good-bg);color:var(--good)}.yn.si{background:var(--amber-bg);color:var(--amber)}
 .pos{font-size:11px;white-space:nowrap}.pos.occ{color:var(--amber);font-weight:500}
+.occ-badge{font-size:11px;padding:2px 8px;border-radius:99px;white-space:nowrap;font-weight:500}
+.occ-red{background:#fbeaea;color:#9b2c2c}
+.occ-green{background:var(--good-bg);color:#2e7d4f}
+.occ-grey{background:var(--neutral-bg);color:#7a808a}
+.view-eye{font-size:11px;cursor:default}
 .refcat{font-family:var(--mono);font-size:11px;color:#69707b;white-space:nowrap}
 .days{font-family:var(--mono);font-weight:500;white-space:nowrap}
 .days.soon{color:var(--seal)}.days.closed{color:#aab0ba}
@@ -258,6 +263,14 @@ body.scope .search,body.insights .search{visibility:hidden}
 .flow-box.inflow{border-color:var(--good);background:var(--good-bg)}
 .buy-note{font-size:12.5px;color:#3a414c;line-height:1.6;margin-top:12px}
 .buy-note b{color:var(--ink)}
+.proc-steps{display:flex;flex-direction:column;margin:8px 0}
+.proc-step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.proc-step:last-child{border-bottom:0}
+.proc-num{flex:0 0 26px;height:26px;border-radius:99px;background:#3a414c;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600}
+.proc-body{font-size:12.8px;color:#3a414c;line-height:1.55}
+.proc-body b{color:var(--ink)}
+.proc-warn{background:#fbeaea;border:1px solid #e2b4b4;border-radius:8px;padding:9px 12px;font-size:12.5px;color:#7a2a2a;margin-top:10px;line-height:1.5}
+.proc-warn b{color:#5e1f1f}
 </style>
 </head>
 <body>
@@ -316,6 +329,11 @@ body.scope .search,body.insights .search{visibility:hidden}
       <div class="minmax"><input id="dayMin" type="number" placeholder="min"><span>–</span><input id="dayMax" type="number" placeholder="max"></div></div>
     <div class="field"><label>Deadline</label><div class="chips" id="fOpen"><span class="chip" role="button" tabindex="0" data-v="open" aria-pressed="true">Open only</span></div></div>
     <div class="field"><label>Favourites</label><div class="chips" id="fFav"><span class="chip" role="button" tabindex="0" data-v="fav" aria-pressed="false">★ Favourites only</span></div></div>
+    <div class="field"><label>Occupancy</label><div class="chips" id="fOcc">
+      <span class="chip" role="button" tabindex="0" data-v="Vacant" aria-pressed="false">Vacant</span>
+      <span class="chip" role="button" tabindex="0" data-v="Occupied" aria-pressed="false">Occupied</span>
+      <span class="chip" role="button" tabindex="0" data-v="Unknown" aria-pressed="false">Unknown</span></div></div>
+    <div class="field"><label>Viewable</label><div class="chips" id="fView"><span class="chip" role="button" tabindex="0" data-v="view" aria-pressed="false">👁 Viewable only</span></div></div>
     <button class="reset" id="reset">Reset filters</button>
   </aside>
 
@@ -467,6 +485,22 @@ body.scope .search,body.insights .search{visibility:hidden}
             <div class="flow-box cost"><b>+ You separately assume</b>Prior charges (cargas anteriores) that survive, ITP transfer tax (~6–10%), notary/registry, and eviction costs if occupied.</div>
           </div>
           <p class="buy-note"><b>The claimed amount is NOT your cost.</b> It's the debtor's debt, paid out of your bid. Your real cost = winning bid <b>+ surviving prior charges + taxes + costs</b>. Always read the <i>nota simple</i> for prior charges before bidding.</p>
+        </div>
+
+        <div class="ins-group">
+          <h3>From opportunity to keys <span class="es">the process</span></h3>
+          <p class="buy-note" style="margin-top:0">Everything runs electronically on the BOE portal (subastas.boe.es) — there is no in-person bidding.</p>
+          <div class="proc-steps">
+            <div class="proc-step"><div class="proc-num">1</div><div class="proc-body"><b>Register &amp; identify</b> on the BOE portal with Cl@ve or a digital certificate (free). Browsing is open; bidding needs the identification.</div></div>
+            <div class="proc-step"><div class="proc-num">2</div><div class="proc-body"><b>Due diligence</b> — read the <i>edicto</i>, pull a fresh <i>nota simple</i> (prior charges), and check the occupancy (the Occupancy column). This is where deals are won or lost.</div></div>
+            <div class="proc-step"><div class="proc-num">3</div><div class="proc-body"><b>Deposit (consignación)</b> — historically 5%, but since the 2025 reform many property auctions require <b>20%</b> of the auction value. Trust the "Deposit" field on each listing, not a rule of thumb. It's blocked via the tax-agency gateway and refunded if you don't win.</div></div>
+            <div class="proc-step"><div class="proc-num">4</div><div class="proc-body"><b>Bid</b> during the 20-day window. Bids are secret — you don't see rivals'. A last-minute bid extends the close.</div></div>
+            <div class="proc-step"><div class="proc-num">5</div><div class="proc-body"><b>Win → pay the rest</b> within ~20 working days (older files: 40). Miss it and you <b>lose the deposit</b>. Bank mortgages rarely fit this window — plan cash or pre-arranged finance.</div></div>
+            <div class="proc-step"><div class="proc-num">6</div><div class="proc-body"><b>Title &amp; registration</b> — the court issues the <i>decreto de adjudicación</i>; you register at the Land Registry and pay ITP (~6–10%), <i>plusvalía</i>, notary/registry.</div></div>
+            <div class="proc-step"><div class="proc-num">7</div><div class="proc-body"><b>Possession (the keys)</b> — winning ≠ keys. If <b>vacant</b>, you request judicial possession (weeks) and take it with a court officer + locksmith. If <b>occupied</b>, you request the <i>lanzamiento</i> (eviction) — typically 6–18 months and €2,000–5,000.</div></div>
+          </div>
+          <div class="proc-warn"><b>Judicial vs. tax-agency auctions change the keys story.</b> In a <b>judicial</b> auction you can ask the same court to evict. In an <b>administrative</b> one (Agencia Tributaria / Recaudación) the authority hands you the title but <b>not</b> possession — you must go to ordinary civil court yourself. Check the Type column.</div>
+          <p class="buy-note"><b>Viewing:</b> usually you cannot see the inside before bidding ("a cuerpo cierto"). Some auctions are marked viewable (👁 in the table) with a contact; the 2025 reform improved inspection rights, especially for the debtor's primary home. For the rest, build a renovation buffer into your bid.</p>
         </div>
 
         <div class="ins-group">
@@ -631,7 +665,7 @@ const mapsUrl=r=>{
 const isExact=r=>r.referencia_catastral&&r.latitud!=null;
 DATA.forEach(r=>{r._days=daysLeft(r.fecha_fin);r._disc=discount(r);const s=startInfo(r);r._safe=s.safe;r._floor=s.floor;r._start=s.safe;});
 
-const state={q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,dayMin:null,dayMax:null,favOnly:false,
+const state={q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,dayMin:null,dayMax:null,favOnly:false,occ:null,viewOnly:false,
   openOnly:true,sort:'days',dir:1,openRow:null,view:'tabla'};
 let FAVS=new Set();
 function isFav(r){return r&&FAVS.has(r.sub_id);}
@@ -667,6 +701,8 @@ function visible(){
     if(state.dayMax!=null&&(r._days==null||r._days>state.dayMax))return false;
     if(state.openOnly&&isClosed(r))return false;
     if(state.favOnly&&!FAVS.has(r.sub_id))return false;
+    if(state.occ&&occInfo(r).label!==state.occ)return false;
+    if(state.viewOnly&&!viewable(r))return false;
     return true;
   });
 }
@@ -677,6 +713,14 @@ function sorted(rows){const k=sk[state.sort]||sk.days;return rows.sort((a,b)=>{c
   return (typeof x==='string'?x.localeCompare(y,'es'):x-y)*state.dir;});}
 
 const occ=p=>p&&p!=='No consta'&&!/^no\b/i.test(p)&&!/libre/i.test(p);
+// Normalisierte Besitzlage: Occupied / Vacant / Unknown (für Badge + Filter).
+function occInfo(r){
+  const p=(r.situacion_posesoria||'').toLowerCase();
+  if(/ocupad|inquilin|arrendad|okupa/.test(p))return {label:'Occupied',cls:'occ-red'};
+  if(/libre|desocupad|sin ocupant|vac[ií]/.test(p))return {label:'Vacant',cls:'occ-green'};
+  return {label:'Unknown',cls:'occ-grey'};
+}
+const viewable=r=>/^s[ií]/i.test((r.visitable||'').trim());
 function detailRow(r){
   const row=(k,v)=>v?`<dl><dt>${k}</dt><dd>${v}</dd></dl>`:'';
   const docs=(r.documentos||[]).map(d=>`<a href="${d.url}" target="_blank" rel="noopener">📄 ${d.nombre||'document'}</a>`).join('');
@@ -773,7 +817,8 @@ function bodyHtml(rows){
     const d=r._days, days=d==null?`<span class="days closed">—</span>`:d<0?`<span class="days closed">closed</span>`:`<span class="days ${d<=7?'soon':''}">${d} d</span>`;
     const disc=r._disc!=null?`<td class="disc">−${Math.round(r._disc*100)}%</td>`:`<td class="disc none">—</td>`;
     const hab=r.vivienda_habitual==='Sí'?`<span class="yn si">Sí</span>`:r.vivienda_habitual==='No'?`<span class="yn no">No</span>`:`<span class="yn">—</span>`;
-    const pos=r.situacion_posesoria?`<span class="pos ${occ(r.situacion_posesoria)?'occ':''}" title="${r.situacion_posesoria}">${r.situacion_posesoria.length>20?r.situacion_posesoria.slice(0,19)+'…':r.situacion_posesoria}</span>`:'—';
+    const oi=occInfo(r);
+    const pos=`<span class="occ-badge ${oi.cls}" title="${(r.situacion_posesoria||'Not stated').replace(/"/g,'')}">${oi.label}</span>${viewable(r)?` <span class="view-eye" title="Viewable on request — ${(r.visitable||'')}">👁</span>`:''}`;
     const open=state.openRow===r.sub_id;
     return `<tr class="data" tabindex="0" data-id="${r.sub_id}">
       <td class="fav-c"><button class="star${isFav(r)?' on':''}" data-fav="${r.sub_id}" title="Toggle favourite" aria-label="Toggle favourite">${isFav(r)?'★':'☆'}</button></td>
@@ -843,7 +888,7 @@ function renderMap(rows){
       <div class="pp-row">${r.subtipo||''} ${r.descripcion?'· '+r.descripcion:''}</div>
       <div class="pp-row" style="color:var(--muted)">${enDesc(r)}</div>
       <div class="pp-row"><b>${r._safe!=null?eur(r._safe):'—'}</b> <span style="color:var(--muted)">safe 70%</span>${r._floor!=null?` · ${eur(r._floor)} floor`:''}${r.valor_subasta!=null?` · value ${eur(r.valor_subasta)}`:''}${disc}</div>
-      <div class="pp-row">${r._days!=null&&r._days>=0?r._days+' days':'closed'}</div>
+      <div class="pp-row"><span class="occ-badge ${occInfo(r).cls}">${occInfo(r).label}</span>${viewable(r)?' 👁 viewable':''} · ${r._days!=null&&r._days>=0?r._days+' days':'closed'}</div>
       <div class="pp-links"><a href="${mapsUrl(r)}" target="_blank" rel="noopener">${isExact(r)?'Satellite ↗':'Maps (approx) ↗'}</a>
         ${r.detail_url?`<a href="${r.detail_url}" target="_blank" rel="noopener">BOE ↗</a>`:''}</div>`);
     pts.push([r.latitud,r.longitud]);
@@ -897,10 +942,10 @@ function chipGroup(id,key){const w=document.getElementById(id);
   const tog=c=>{const was=c.getAttribute('aria-pressed')==='true';
     w.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed','false'));
     c.setAttribute('aria-pressed',was?'false':'true');
-    if(key==='open')state.openOnly=!was;else if(key==='fav')state.favOnly=!was;else state[key]=was?null:c.dataset.v;render();};
+    if(key==='open')state.openOnly=!was;else if(key==='fav')state.favOnly=!was;else if(key==='view')state.viewOnly=!was;else state[key]=was?null:c.dataset.v;render();};
   w.addEventListener('click',e=>{const c=e.target.closest('.chip');if(c)tog(c);});
   w.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){const c=e.target.closest('.chip');if(c){e.preventDefault();tog(c);}}});}
-chipGroup('fHab','hab');chipGroup('fOpen','open');chipGroup('fFav','fav');
+chipGroup('fHab','hab');chipGroup('fOpen','open');chipGroup('fFav','fav');chipGroup('fOcc','occ');chipGroup('fView','view');
 
 document.getElementById('thead').addEventListener('click',e=>{
   const b=e.target.closest('button[data-sort]');if(!b)return;const s=b.dataset.sort;
@@ -1225,7 +1270,7 @@ buildScope();
 render();
 
 document.getElementById('reset').addEventListener('click',()=>{
-  Object.assign(state,{q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,dayMin:null,dayMax:null,favOnly:false,openOnly:true});
+  Object.assign(state,{q:'',prov:[],tipo:'',subtipo:'',vMin:null,vMax:null,dMax:null,pm2Max:null,upMin:null,hab:null,dayMin:null,dayMax:null,favOnly:false,occ:null,viewOnly:false,openOnly:true});
   document.getElementById('q').value='';
   ['fTipo','fSubtipo','vMin','vMax','dMax','pm2Max','upMin','dayMin','dayMax'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('fProv').selectedIndex=-1;
